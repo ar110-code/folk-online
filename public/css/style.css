@@ -3929,6 +3929,138 @@ input:focus, select:focus,
   }
 }
 
+/* ============================================================
+   TRADE PROPOSAL INCOMING NOTIFICATIONS & ALERTS
+   ============================================================ */
+
+.trade-alert-container {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 95vw;
+  width: 530px;
+  pointer-events: auto;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.trade-alert-card {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 27, 75, 0.98) 100%);
+  border: 2px solid #8b5cf6;
+  border-radius: 14px;
+  padding: 14px 18px;
+  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.9), 0 0 24px rgba(139, 92, 246, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: #f8fafc;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  animation: slideDownTradeAlert 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.trade-alert-card.is-buy-mode {
+  border-color: #3b82f6;
+  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.9), 0 0 24px rgba(59, 130, 246, 0.45);
+}
+
+.trade-alert-card.is-sell-mode {
+  border-color: #10b981;
+  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.9), 0 0 24px rgba(16, 185, 129, 0.45);
+}
+
+@keyframes slideDownTradeAlert {
+  from {
+    opacity: 0;
+    transform: translateY(-25px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.trade-alert-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 8px;
+}
+
+.trade-alert-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.trade-alert-badge {
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: #ffffff;
+}
+
+.trade-alert-badge.badge-buy {
+  background: #2563eb;
+}
+
+.trade-alert-badge.badge-sell {
+  background: #059669;
+}
+
+.trade-alert-country-pill {
+  font-size: 0.78rem;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid #475569;
+}
+
+.trade-alert-body {
+  font-size: 0.88rem;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+
+.trade-alert-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.trade-alert-actions .btn {
+  font-weight: bold;
+  padding: 5px 12px;
+  font-size: 0.82rem;
+}
+
+/* Occupied & Locked Production Line UI */
+.disabled-locked-line {
+  opacity: 0.45 !important;
+  filter: grayscale(0.85);
+  cursor: not-allowed !important;
+  border-color: #ef4444 !important;
+  pointer-events: none;
+  position: relative;
+}
+
+.disabled-locked-line small {
+  color: #ef4444 !important;
+  font-weight: bold;
+}
+
+
+
 
 
 

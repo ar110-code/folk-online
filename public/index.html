@@ -16,6 +16,9 @@
   <!-- Direct Line Incoming Call Alert Container -->
   <div id="direct-line-alert-container" class="direct-line-alert-container hidden"></div>
 
+  <!-- Incoming Trade Proposals Alert Notification Container -->
+  <div id="trade-alert-container" class="trade-alert-container hidden"></div>
+
   <!-- Screen 1: Lobby -->
   <div id="lobby-screen" class="screen active">
     <div class="lobby-container">
@@ -358,9 +361,22 @@
                   <div>
                     <label style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 4px;">نوع کالا:</label>
                     <select id="trade-good-type" style="width: 100%; padding: 8px; font-size: 0.85rem;">
-                      <option value="bread">🍞 نان</option>
-                      <option value="building">🏛️ ساختمان</option>
-                      <option value="clothes">👔 لباس</option>
+                      <optgroup label="── محصولات نهایی ──">
+                        <option value="bread">🍞 نان</option>
+                        <option value="building">🏛️ ساختمان</option>
+                        <option value="clothes">👔 لباس</option>
+                      </optgroup>
+                      <optgroup label="── مواد اولیه و خام ──">
+                        <option value="wheat">🌾 گندم</option>
+                        <option value="oven">🔥 کوره/تنور</option>
+                        <option value="brick">🧱 آجر</option>
+                        <option value="crane">🏗️ جرثقیل</option>
+                        <option value="cotton">☁️ پنبه</option>
+                        <option value="sewing">🧵 چرخ خیاطی</option>
+                      </optgroup>
+                      <optgroup label="── انرژی و لجستیک ──">
+                        <option value="fuel">⛽ توکن سوخت</option>
+                      </optgroup>
                     </select>
                   </div>
                   <div>
@@ -484,7 +500,7 @@
               </div>
               <div class="floating-group">
                 <button type="button" class="btn btn-primary btn-xs" id="btn-quick-buy-army" title="خرید و استقرار ۳۰ سرباز جدید در پایتخت یا مخازن">🎖️ باکس جدید (۳۰K 💰)</button>
-                <button type="button" class="btn btn-success btn-xs" id="btn-quick-reinf" title="شارژ ۱۰ سرباز به ارتش انتخابی">⚡ شارژ ارتش (+۱۰)</button>
+                <button type="button" class="btn btn-success btn-xs" id="btn-quick-reinf" title="شارژ ۱۰ سرباز به ارتش انتخابی (۲۰٬۰۰۰ سکه)">⚡ شارژ ارتش (+۱۰ | ۲۰K)</button>
                 <button type="button" class="btn btn-danger btn-xs hidden" id="btn-quick-cancel-army" title="لغو انتخاب ارتش">❌ انصراف</button>
               </div>
             </div>
@@ -672,7 +688,7 @@
                         </div>
                       </div>
                       <div class="recruit-action-group">
-                        <span id="reinf-cost-preview" class="cost-preview-badge">هزینه: ۱۰٬۰۰۰ سکه</span>
+                        <span id="reinf-cost-preview" class="cost-preview-badge">هزینه: ۲۰٬۰۰۰ سکه</span>
                         <button id="btn-reinforce-army" class="btn btn-success">شارژ ارتش خط مقدم</button>
                       </div>
                     </div>
@@ -699,7 +715,8 @@
             </div>
             <div class="pres-stats">
               <span class="stat-badge pres-tech-badge">🔬 سطح فناوری ملی: <strong id="pres-tech-level">۱</strong></span>
-              <span class="stat-badge pres-power-badge">⚡ ضریب قدرت ملی: <strong id="pres-tech-mult">۱.۰×</strong></span>
+              <span class="stat-badge pres-power-badge">⚡ ضریب قدرت نبرد: <strong id="pres-tech-mult">۱.۰×</strong></span>
+              <span class="stat-badge pres-tool-badge" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #34d399;">🛠️ قیمت ابزار: <strong id="pres-tool-price">۵,۰۰۰</strong> سکه</span>
             </div>
           </div>
 
@@ -713,22 +730,117 @@
           <!-- Tab 1: Tech Development & Puzzles -->
           <div id="pres-tab-tech" class="dash-tab-content active" data-tab-group="pres">
             <div class="card tech-card" style="padding: 20px;">
-              <h3 style="color: #60a5fa; font-size: 1.15rem;">🔬 آزمایشگاه توسعه فناوری ملی</h3>
-              <p class="card-desc" style="font-size: 0.9rem; margin-bottom: 14px;">حل پازل‌های فناوری ضریب ارتش در نبرد و توان تولید اقتصاد کشور را به‌طور دائمی ارتقا می‌دهد.</p>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+                <h3 style="color: #60a5fa; font-size: 1.15rem; margin: 0;">🔬 آزمایشگاه توسعه فناوری ملی</h3>
+                <span id="tech-phase-tag" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; font-size: 0.8rem; padding: 4px 10px; border-radius: 12px;">
+                  فاز اول: فناوری‌های پایه صنعتی
+                </span>
+              </div>
+              <p class="card-desc" style="font-size: 0.88rem; margin-bottom: 14px; color: #94a3b8;">حل معماهای علمی ضریب آتش ارتش در نبرد را تا حداکثر ۳.۰× و تخفیف خرید ابزار را تا سقف ۴۰۰۰ سکه ارتقا می‌دهد.</p>
 
-              <div id="puzzle-locked-state" class="puzzle-box">
-                <p style="color: #cbd5e1; font-size: 0.95rem;">🔒 مدار این سطح قفل است. جهت رمزگشایی و بارگذاری صورت پازل از خزانه کل هزینه پرداخت کنید.</p>
-                <button id="btn-unlock-puzzle" class="btn btn-warning" style="padding: 10px 20px; font-weight: bold;">باز کردن پازل فناوری (۵۰۰۰ سکه)</button>
+              <!-- Warning Banner for 2000 coins & Espionage -->
+              <div class="tech-warning-banner" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; color: #fbbf24; font-size: 0.88rem; line-height: 1.6;">
+                <span style="font-size: 1.5rem; flex-shrink: 0;">⚠️</span>
+                <div>
+                  <strong>هشدار امنیت ملی و خزانه:</strong> هزینه هر بار تلاش برای ثبت پاسخ <strong>۲٬۰۰۰ سکه</strong> است (چه پاسخ درست باشد چه غلط، کسر می‌گردد). تمام کشورهای این اتاق معماها و پاسخ‌های یکسانی دارند؛ مراقب کدهای جعلی و فریب‌های دیپلماتیک باشید!
+                </div>
               </div>
 
-              <div id="puzzle-active-state" class="puzzle-box hidden">
-                <div class="puzzle-prompt" id="puzzle-prompt-text" style="font-size: 1.05rem;">صورت پازل...</div>
-                <div class="puzzle-interactive" id="puzzle-interactive-area">
-                  <!-- Puzzle interactive elements -->
+              <div id="puzzle-locked-state" class="puzzle-box hidden">
+                <p style="color: #cbd5e1; font-size: 0.95rem;">🔒 مدار این سطح قفل است.</p>
+                <button id="btn-unlock-puzzle" class="btn btn-warning" style="padding: 10px 20px; font-weight: bold;">مشاهده معمای سطح</button>
+              </div>
+
+              <div id="puzzle-active-state" class="puzzle-box">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span id="puzzle-icon" style="font-size: 1.3rem;">⚡</span>
+                    <strong id="puzzle-level-title" style="color: #f1f5f9; font-size: 1.05rem;">سطح ۱: موازنه راکتور انرژی</strong>
+                  </div>
+                  <span id="puzzle-level-badge" class="stat-badge" style="border-color: #38bdf8; color: #38bdf8; font-size: 0.8rem; padding: 2px 8px;">سطح ۱ از ۱۰</span>
                 </div>
-                <div class="puzzle-submit-group" style="margin-top: 14px;">
-                  <input type="text" id="puzzle-answer-input" placeholder="پاسخ نهایی پازل را تایپ کنید..." style="padding: 10px 14px; font-size: 0.95rem;">
-                  <button id="btn-submit-puzzle" class="btn btn-success" style="padding: 10px 20px; font-weight: bold;">ثبت پاسخ در پایگاه داده (۲۰۰۰ سکه)</button>
+
+                <div class="puzzle-prompt" id="puzzle-prompt-text" style="font-size: 0.95rem; line-height: 1.7; color: #cbd5e1; margin-bottom: 14px;">صورت پازل...</div>
+                
+                <!-- Rich Interactive/Visual Display Area -->
+                <div class="puzzle-interactive" id="puzzle-interactive-area" style="margin-bottom: 16px;">
+                  <!-- Dynamic SVG / Table / Cards rendered by JS -->
+                </div>
+
+                <div class="puzzle-submit-group" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                  <input type="text" id="puzzle-answer-input" placeholder="پاسخ را وارد کنید..." style="flex: 1; min-width: 200px; padding: 10px 14px; font-size: 0.95rem; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; color: #fff; font-family: monospace; text-align: center; letter-spacing: 2px;">
+                  <button id="btn-submit-puzzle" class="btn btn-success" style="padding: 10px 20px; font-weight: bold; white-space: nowrap;">
+                    🚀 ثبت پاسخ (کسر ۲۰۰۰ سکه)
+                  </button>
+                  <button id="btn-copy-current-code" class="btn btn-secondary hidden" style="padding: 10px 14px; font-size: 0.85rem; border-color: #a855f7; color: #c084fc; white-space: nowrap;">
+                    📋 کپی کد جهت فروش در چت
+                  </button>
+                </div>
+              </div>
+
+              <div id="puzzle-max-level" class="puzzle-box hidden" style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.4); text-align: center; padding: 24px;">
+                <div style="font-size: 2.5rem; margin-bottom: 8px;">🏆</div>
+                <h4 style="color: #34d399; font-size: 1.2rem; margin-bottom: 6px;">تمام ۱۰ سطح توسعه فناوری تکمیل شد!</h4>
+                <p style="color: #94a3b8; font-size: 0.9rem; margin: 0;">کشور شما به اوج ابرقدرت فناوری (ضریب ارتش ۳.۰× و ابزار ۱۰۰۰ سکه) دست یافت.</p>
+              </div>
+            </div>
+
+            <!-- Secret Intelligence & Espionage Archive (President Only) -->
+            <div class="card" style="margin-top: 16px; padding: 20px; border-color: rgba(168, 85, 247, 0.35); background: rgba(15, 23, 42, 0.9);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                <h4 style="color: #c084fc; font-size: 1.05rem; margin: 0; display: flex; align-items: center; gap: 8px;">
+                  <span>🗄️ بایگانی اسرار اطلاعاتی و کدهای حل‌شده (جهت فروش دیپلماتیک)</span>
+                </h4>
+                <span style="font-size: 0.8rem; color: #94a3b8; background: rgba(168, 85, 247, 0.15); padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(168, 85, 247, 0.3);">
+                  🔒 دسترسی محرمانه رئیس‌جمهور
+                </span>
+              </div>
+              <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 12px; line-height: 1.6;">
+                کدهای کشف‌شده در این اتاق برای تمام ۴ کشور معتبر است. می‌توانید این پاسخ‌ها را در خط مستقیم رئیس‌جمهورها به رقبا بفروشید یا در معاهدات صلح مبادله کنید!
+              </p>
+              <div id="tech-solved-archive-list" style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="color: #64748b; font-size: 0.85rem; font-style: italic; padding: 10px; text-align: center; border: 1px dashed rgba(255,255,255,0.1); border-radius: 8px;">
+                  هنوز هیچ مرحله‌ای حل نشده است. پس از حل اولین پازل، کد محرمانه آن برای فروش در اینجا ذخیره می‌شود.
+                </div>
+              </div>
+            </div>
+
+            <!-- Tech Progression Roadmap (War & Economy) -->
+            <div class="card" style="margin-top: 16px; padding: 20px; border-color: rgba(96, 165, 250, 0.4); background: rgba(15, 23, 42, 0.85);">
+              <h4 style="color: #38bdf8; font-size: 1.05rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                <span>📊 نقشه راه پیشرفت فناوری در اقتصاد و جنگ</span>
+              </h4>
+              <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 14px;">
+                هر سطح فناوری دستاوردهای استراتژیک دائمی برای کشور به همراه دارد: کاهش هزینه خرید ابزار برای وزارت اقتصاد، و افزایش ضریب قدرت آتش ارتش برای وزارت جنگ.
+              </p>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <!-- Economy Perks -->
+                <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 14px;">
+                  <div style="font-weight: bold; color: #34d399; margin-bottom: 8px; font-size: 0.95rem;">
+                    🌾 پیشرفت در اقتصاد (تخفیف قیمت ابزار)
+                  </div>
+                  <div style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 10px;">قیمت پایه در سطح ۱: ۵,۰۰۰ سکه</div>
+                  <ul style="margin: 0; padding-right: 18px; font-size: 0.84rem; color: #e2e8f0; line-height: 1.8;">
+                    <li><strong>سطح ۲:</strong> ۴,۰۰۰ سکه <span style="color: #34d399;">(۱,۰۰۰- سکه تخفیف)</span></li>
+                    <li><strong>سطح ۵:</strong> ۳,۰۰۰ سکه <span style="color: #34d399;">(۱,۰۰۰- سکه تخفیف دیگر)</span></li>
+                    <li><strong>سطح ۷:</strong> ۲,۰۰۰ سکه <span style="color: #34d399;">(۱,۰۰۰- سکه تخفیف دیگر)</span></li>
+                    <li><strong>سطح ۱۰:</strong> ۱,۰۰۰ سکه <span style="color: #34d399;">(۱,۰۰۰- سکه تخفیف دیگر - اوج بازدهی)</span></li>
+                  </ul>
+                </div>
+
+                <!-- War Perks -->
+                <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 14px;">
+                  <div style="font-weight: bold; color: #f87171; margin-bottom: 8px; font-size: 0.95rem;">
+                    ⚔️ پیشرفت در جنگ (ضریب قدرت نبرد ارتش)
+                  </div>
+                  <div style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 10px;">ضریب پایه در سطوح ۱ و ۲: ۱.۰×</div>
+                  <ul style="margin: 0; padding-right: 18px; font-size: 0.84rem; color: #e2e8f0; line-height: 1.8;">
+                    <li><strong>سطح ۳:</strong> ۱.۵× <span style="color: #f87171;">(۰.۵+ ضریب توان نبرد)</span></li>
+                    <li><strong>سطح ۵:</strong> ۲.۰× <span style="color: #f87171;">(۰.۵+ ضریب دیگر)</span></li>
+                    <li><strong>سطح ۷:</strong> ۲.۵× <span style="color: #f87171;">(۰.۵+ ضریب دیگر)</span></li>
+                    <li><strong>سطح ۱۰:</strong> ۳.۰× <span style="color: #f87171;">(۰.۵+ ضریب دیگر - ابرقدرت نظامی)</span></li>
+                  </ul>
                 </div>
               </div>
             </div>
@@ -975,6 +1087,11 @@
             <span>👑 دژ مستحکم پایتخت:</span>
             <strong>+۲.۰ ضریب دفاعی مضاعف!</strong>
           </div>
+          <!-- Main Region Base Defense Indicator -->
+          <div id="battle-main-region-defense-badge" class="capital-defense-indicator hidden" style="background: rgba(59, 130, 246, 0.15); border-color: #3b82f6; color: #93c5fd; margin-top: 6px;">
+            <span>🛡️ گارد دفاعی منطقه اصلی:</span>
+            <strong>۱۵ مدافع بومی مستقر</strong>
+          </div>
           <div class="side-formula-box">
             <div class="formula-title">فرمول محاسبه قدرت تدافعی:</div>
             <div class="formula-calc" id="battle-def-formula">۳۰ × (۱.۰ + ۲.۰)</div>
@@ -1020,6 +1137,9 @@
         </div>
         <div id="battle-capital-fallen-alert" class="capital-fallen-alert hidden">
           👑 <strong>سقوط کامل پایتخت دشمن!</strong> تمام خزاین و اراضی کشور مغلوب به تصرف ارتش فاتح درآمد و کشور شکست‌خورده از بازی حذف شد.
+        </div>
+        <div id="battle-resource-looted-alert" class="capital-fallen-alert hidden" style="background: rgba(245, 158, 11, 0.15); border-color: #f59e0b; color: #fde68a; margin-top: 10px;">
+          <!-- Looted resources announcement -->
         </div>
       </div>
 

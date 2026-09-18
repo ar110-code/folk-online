@@ -232,7 +232,9 @@ function renderHexMap() {
     polygon.setAttribute('points', getHexPolygonPoints(x, y, HEX_SIZE - 1.5));
     polygon.setAttribute('class', 'hex-cell');
 
-    const canExpandHere = isExpansionMode && myPlayer && myPlayer.role === 'war' && isExpandableNeutralHex(hex, myPlayer.countryId);
+    const myCountry = currentRoom && myPlayer && myPlayer.countryId ? currentRoom.countries[myPlayer.countryId] : null;
+    const hasExpandedThisTurn = !!(myCountry && myCountry.military && (myCountry.military.fuelExpansionsThisTurn || 0) >= 1);
+    const canExpandHere = !hasExpandedThisTurn && isExpansionMode && myPlayer && myPlayer.role === 'war' && isExpandableNeutralHex(hex, myPlayer.countryId);
 
     let fillColor = '#b48328'; // Rich warm ochre / gold for neutral territory
     let strokeColor = '#1e293b';
@@ -299,6 +301,33 @@ function renderHexMap() {
       iconText.textContent = RES_ICONS[hex.resourceType] || '📦';
       g.appendChild(iconText);
     }
+
+    // Defense garrison badge for 7 main regions
+    if (hex.isMainRegion || hex.isCapital || hex.isResourceZone) {
+      const defBadge = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      defBadge.setAttribute('x', x);
+      defBadge.setAttribute('y', y + 14);
+      defBadge.setAttribute('text-anchor', 'middle');
+      defBadge.setAttribute('font-size', '7.5');
+      defBadge.setAttribute('font-weight', 'bold');
+      defBadge.setAttribute('fill', '#cbd5e1');
+      defBadge.setAttribute('opacity', '0.9');
+      defBadge.textContent = '🛡️۱۵';
+      g.appendChild(defBadge);
+    }
+
+    // Tooltip for quick status inspection
+    const tooltip = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    let tip = `موقعیت: ${hex.id}`;
+    if (hex.isCapital) tip += ` | پایتخت کشور ${COUNTRY_PERSIAN_NAMES[hex.owner] || hex.owner} (دژ مستحکم)`;
+    else if (hex.isResourceZone) tip += ` | پایگاه تولید ${hex.resourceName || hex.resourceType} (${COUNTRY_PERSIAN_NAMES[hex.owner] || hex.owner})`;
+    else if (hex.owner !== 'neutral') tip += ` | قلمرو ${COUNTRY_PERSIAN_NAMES[hex.owner] || hex.owner}`;
+    else tip += ` | اراضی خنثی`;
+    if (hex.isMainRegion || hex.isCapital || hex.isResourceZone) {
+      tip += ` | دفاع پایه: ۱۵ نفر`;
+    }
+    tooltip.textContent = tip;
+    g.appendChild(tooltip);
 
     // Render Armies
     renderArmiesOnHex(hex, g, x, y);
@@ -412,16 +441,32 @@ function updateExpansionButtonState() {
   const quickStatus = document.getElementById('quick-expand-status');
   const btnQuickExpand = document.getElementById('btn-quick-expand');
 
+  const myCountry = currentRoom && myPlayer && myPlayer.countryId ? currentRoom.countries[myPlayer.countryId] : null;
+  const hasExpandedThisTurn = !!(myCountry && myCountry.military && (myCountry.military.fuelExpansionsThisTurn || 0) >= 1);
+
+  if (hasExpandedThisTurn) {
+    isExpansionMode = false;
+  }
+
   if (quickStatus) {
-    quickStatus.textContent = isExpansionMode ? 'روشن 🟢' : 'خاموش ⚪';
+    if (hasExpandedThisTurn) {
+      quickStatus.textContent = 'سقف نوبت پر شد (۱/۱) 🔒';
+    } else {
+      quickStatus.textContent = isExpansionMode ? 'روشن 🟢' : 'خاموش ⚪';
+    }
   }
   if (btnQuickExpand) {
-    btnQuickExpand.classList.toggle('btn-success', isExpansionMode);
-    btnQuickExpand.classList.toggle('btn-secondary', !isExpansionMode);
+    btnQuickExpand.classList.toggle('btn-success', isExpansionMode && !hasExpandedThisTurn);
+    btnQuickExpand.classList.toggle('btn-secondary', !isExpansionMode || hasExpandedThisTurn);
   }
 
   if (!btn) return;
-  if (isExpansionMode) {
+  if (hasExpandedThisTurn) {
+    btn.classList.remove('btn-success', 'active');
+    btn.classList.add('btn-secondary');
+    btn.textContent = '🔒 سقف ۱ زمین مصرف شد';
+    if (chipsContainer) chipsContainer.style.display = 'none';
+  } else if (isExpansionMode) {
     btn.classList.remove('btn-secondary');
     btn.classList.add('btn-success', 'active');
     btn.textContent = 'روشن 🟢';
@@ -491,12 +536,12 @@ function openBattleAssessmentModal(attBox, targetHex) {
   const attPower = Math.round(attSoldiers * attTech);
 
   const defBoxes = defCountry.military.armyBoxes.filter(b => b.hexId === targetHex.id);
-  let defSoldiers = defBoxes.reduce((acc, b) => acc + b.soldiers, 0);
+  const defBoxesSoldiers = defBoxes.reduce((acc, b) => acc + b.soldiers, 0);
 
   const isCapital = targetHex.isCapital && targetHex.capitalCountry === defCountryId;
-  if (isCapital) {
-    defSoldiers += (defCountry.military.capitalSoldiers || 0);
-  }
+  const isMainRegion = !!(targetHex.isMainRegion || targetHex.isCapital || targetHex.isResourceZone);
+  const baseDefense = (targetHex.baseDefense !== undefined) ? targetHex.baseDefense : (isMainRegion ? 15 : 0);
+  let defSoldiers = defBoxesSoldiers + baseDefense;
 
   const defCapBonus = isCapital ? 2.0 : 0.0;
   const defTech = defCountry.techMultiplier || 1.0;
@@ -521,19 +566,46 @@ function openBattleAssessmentModal(attBox, targetHex) {
   if (defCard) defCard.style.borderColor = COUNTRY_COLORS[defCountryId] || '#3b82f6';
   document.getElementById('battle-def-country-name').textContent = COUNTRY_PERSIAN_NAMES[defCountryId] || defCountryId;
   document.getElementById('battle-def-country-name').style.color = COUNTRY_COLORS[defCountryId] || '#3b82f6';
-  document.getElementById('battle-def-soldiers').textContent = `${defSoldiers.toLocaleString('fa-IR')} نفر`;
+  
+  if (defBoxesSoldiers > 0 && baseDefense > 0) {
+    document.getElementById('battle-def-soldiers').textContent = `${defSoldiers.toLocaleString('fa-IR')} نفر (${defBoxesSoldiers.toLocaleString('fa-IR')} ارتش + ${baseDefense.toLocaleString('fa-IR')} گارد)`;
+  } else if (baseDefense > 0) {
+    document.getElementById('battle-def-soldiers').textContent = `${defSoldiers.toLocaleString('fa-IR')} نفر (${baseDefense.toLocaleString('fa-IR')} گارد پایگاه)`;
+  } else {
+    document.getElementById('battle-def-soldiers').textContent = `${defSoldiers.toLocaleString('fa-IR')} نفر`;
+  }
   document.getElementById('battle-def-tech').textContent = `${defTech.toFixed(1)}×`;
 
   const capBadge = document.getElementById('battle-capital-defense-badge');
   if (capBadge) {
     if (isCapital) {
       capBadge.classList.remove('hidden');
-      document.getElementById('battle-def-formula').textContent = `${defSoldiers} × (${defTech.toFixed(1)} + ۲.۰ دژ)`;
     } else {
       capBadge.classList.add('hidden');
-      document.getElementById('battle-def-formula').textContent = `${defSoldiers} × ${defTech.toFixed(1)}`;
     }
   }
+
+  const mainRegionBadge = document.getElementById('battle-main-region-defense-badge');
+  if (mainRegionBadge) {
+    if (baseDefense > 0) {
+      mainRegionBadge.classList.remove('hidden');
+    } else {
+      mainRegionBadge.classList.add('hidden');
+    }
+  }
+
+  let formulaStr = '';
+  if (defBoxesSoldiers > 0 && baseDefense > 0) {
+    formulaStr = `(${defBoxesSoldiers} + ${baseDefense})`;
+  } else {
+    formulaStr = `${defSoldiers}`;
+  }
+  if (isCapital) {
+    formulaStr += ` × (${defTech.toFixed(1)} + ۲.۰ دژ)`;
+  } else {
+    formulaStr += ` × ${defTech.toFixed(1)}`;
+  }
+  document.getElementById('battle-def-formula').textContent = formulaStr;
   document.getElementById('battle-def-power').textContent = defPower.toLocaleString('fa-IR');
 
   // Tug-of-war Power Bar
@@ -608,19 +680,45 @@ function showBattleOutcome(combat) {
   // Defender card
   document.getElementById('battle-def-country-name').textContent = COUNTRY_PERSIAN_NAMES[combat.defCountryId] || combat.defCountryId;
   document.getElementById('battle-def-country-name').style.color = COUNTRY_COLORS[combat.defCountryId] || '#3b82f6';
-  document.getElementById('battle-def-soldiers').textContent = `${(combat.defSoldiers || 0).toLocaleString('fa-IR')} نفر`;
+  if (combat.defBoxesSoldiers > 0 && combat.baseDefense > 0) {
+    document.getElementById('battle-def-soldiers').textContent = `${(combat.defSoldiers || 0).toLocaleString('fa-IR')} نفر (${combat.defBoxesSoldiers.toLocaleString('fa-IR')} ارتش + ${combat.baseDefense.toLocaleString('fa-IR')} گارد)`;
+  } else if (combat.baseDefense > 0) {
+    document.getElementById('battle-def-soldiers').textContent = `${(combat.defSoldiers || 0).toLocaleString('fa-IR')} نفر (${combat.baseDefense.toLocaleString('fa-IR')} گارد پایگاه)`;
+  } else {
+    document.getElementById('battle-def-soldiers').textContent = `${(combat.defSoldiers || 0).toLocaleString('fa-IR')} نفر`;
+  }
   document.getElementById('battle-def-tech').textContent = `${(combat.defTechMultiplier || 1.0).toFixed(1)}×`;
 
   const capBadge = document.getElementById('battle-capital-defense-badge');
   if (capBadge) {
     if (combat.isCapital) {
       capBadge.classList.remove('hidden');
-      document.getElementById('battle-def-formula').textContent = `${combat.defSoldiers} × (${(combat.defTechMultiplier || 1.0).toFixed(1)} + ۲.۰ دژ)`;
     } else {
       capBadge.classList.add('hidden');
-      document.getElementById('battle-def-formula').textContent = `${combat.defSoldiers} × ${(combat.defTechMultiplier || 1.0).toFixed(1)}`;
     }
   }
+
+  const mainRegionBadge = document.getElementById('battle-main-region-defense-badge');
+  if (mainRegionBadge) {
+    if (combat.baseDefense > 0 || combat.isMainRegion) {
+      mainRegionBadge.classList.remove('hidden');
+    } else {
+      mainRegionBadge.classList.add('hidden');
+    }
+  }
+
+  let outFormulaStr = '';
+  if (combat.defBoxesSoldiers > 0 && combat.baseDefense > 0) {
+    outFormulaStr = `(${combat.defBoxesSoldiers} + ${combat.baseDefense})`;
+  } else {
+    outFormulaStr = `${combat.defSoldiers}`;
+  }
+  if (combat.isCapital) {
+    outFormulaStr += ` × (${(combat.defTechMultiplier || 1.0).toFixed(1)} + ۲.۰ دژ)`;
+  } else {
+    outFormulaStr += ` × ${(combat.defTechMultiplier || 1.0).toFixed(1)}`;
+  }
+  document.getElementById('battle-def-formula').textContent = outFormulaStr;
   document.getElementById('battle-def-power').textContent = Math.round(combat.defPower || 0).toLocaleString('fa-IR');
 
   // Tug-of-war Bar
@@ -675,6 +773,37 @@ function showBattleOutcome(combat) {
     }
   }
 
+  // Resource Hex Conquest & Warehouse Looting Alert
+  const lootAlert = document.getElementById('battle-resource-looted-alert');
+  if (lootAlert) {
+    if (combat.lootedResource && combat.lootedResource.quantity > 0) {
+      lootAlert.classList.remove('hidden');
+      lootAlert.innerHTML = `📦 <strong>غنیمت تسخیر انبار ${combat.lootedResource.name}:</strong> تمام موجودی انبار مدافع (<strong>${combat.lootedResource.quantity.toLocaleString('fa-IR')} عدد</strong>) غارت شد و به انبار ارتش فاتح (${winnerName}) انتقال یافت! خط تولید ${combat.lootedResource.name} مدافع متوقف گردید.`;
+    } else if (combat.lootedResource && combat.lootedResource.quantity === 0) {
+      lootAlert.classList.remove('hidden');
+      lootAlert.innerHTML = `🔒 <strong>تسخیر انبار و مرکز تولید ${combat.lootedResource.name}:</strong> انبار مدافع خالی بود، اما خط تولید ${combat.lootedResource.name} دشمن قفل شد و دیگر قادر به تولید آن نخواهد بود!`;
+    } else {
+      lootAlert.classList.add('hidden');
+    }
+  }
+
+  // Real-time toast feedback for winner and loser
+  if (combat.lootedResource) {
+    if (combat.winner === myPlayer.countryId) {
+      if (combat.lootedResource.quantity > 0) {
+        showToast(`🏆 غنیمت تسخیر انبار! تمام ${combat.lootedResource.quantity} عدد ${combat.lootedResource.name} دشمن به انبار شما اضافه شد و خط تولید دشمن قفل گردید.`, 'success');
+      } else {
+        showToast(`🏆 مرکز تولید ${combat.lootedResource.name} دشمن تسخیر شد و خط تولید آن قفل گردید!`, 'success');
+      }
+    } else if (combat.loser === myPlayer.countryId) {
+      if (combat.lootedResource.quantity > 0) {
+        showToast(`⚠️ انبار ${combat.lootedResource.name} شما سقوط کرد! ${combat.lootedResource.quantity} عدد غارت شد و خط تولید متوقف گردید!`, 'error');
+      } else {
+        showToast(`⚠️ مرکز تولید ${combat.lootedResource.name} شما توسط ارتش ${winnerName} تصرف و خط تولید قفل شد!`, 'error');
+      }
+    }
+  }
+
   // Show outcome section, hide assessment advice and attack buttons
   document.getElementById('battle-stage-preview').classList.remove('hidden');
   document.querySelector('.battle-power-bar-wrapper').classList.remove('hidden');
@@ -704,16 +833,34 @@ function executeTerritoryExpansion(targetHexId) {
     showToast('برای گسترش قلمرو به حداقل ۱ توکن سوخت نیاز دارید (از دکمه‌های خرید سوخت استفاده کنید).', 'error');
     return;
   }
+  if ((myCountry.military.fuelExpansionsThisTurn || 0) >= 1) {
+    showToast('در هر نوبت فقط می‌توانید ۱ زمین را با سوخت گسترش دهید.', 'warning');
+    isExpansionMode = false;
+    updateExpansionButtonState();
+    renderHexMap();
+    return;
+  }
 
   socket.emit('expand_territory', {
     countryId: myPlayer.countryId,
     targetHexId: targetHexId
   }, res => {
     if (res.success) {
-      showToast(`هکس ${targetHexId} با مصرف ۱ سوخت ضمیمه قلمرو شد! ⛽🗺️`, 'success');
+      if (myCountry && myCountry.military) {
+        myCountry.military.fuelExpansionsThisTurn = (myCountry.military.fuelExpansionsThisTurn || 0) + 1;
+        if (res.fuelTokens !== undefined) myCountry.military.fuelTokens = res.fuelTokens;
+      }
+      showToast(`هکس ${targetHexId} با مصرف ۱ سوخت ضمیمه قلمرو شد! ⛽🗺️ (سقف گسترش این نوبت مصرف شد)`, 'success');
+      isExpansionMode = false;
+      updateExpansionButtonState();
       renderHexMap();
     } else {
       showToast(res.error, 'error');
+      if (res.error && res.error.includes('فقط می‌توانید ۱ زمین')) {
+        isExpansionMode = false;
+        updateExpansionButtonState();
+        renderHexMap();
+      }
     }
   });
 }
@@ -722,6 +869,14 @@ function onHexClick(hex) {
   if (myPlayer.role !== 'war') return;
 
   if (isExpansionMode) {
+    const myCountry = currentRoom && myPlayer && myPlayer.countryId ? currentRoom.countries[myPlayer.countryId] : null;
+    if (myCountry && myCountry.military && (myCountry.military.fuelExpansionsThisTurn || 0) >= 1) {
+      showToast('در هر نوبت فقط می‌توانید ۱ زمین را با سوخت گسترش دهید.', 'warning');
+      isExpansionMode = false;
+      updateExpansionButtonState();
+      renderHexMap();
+      return;
+    }
     if (hex.owner !== 'neutral') {
       showToast('گسترش با سوخت فقط روی خانه‌های خنثی امکان‌پذیر است.', 'warning');
       return;
@@ -782,6 +937,13 @@ function setupWarEventListeners() {
 
   // Toggle expansion mode (Standard and Floating button)
   const toggleExpandHandler = () => {
+    if (currentRoom && myPlayer && myPlayer.countryId && currentRoom.countries[myPlayer.countryId]) {
+      const myCountry = currentRoom.countries[myPlayer.countryId];
+      if ((myCountry.military.fuelExpansionsThisTurn || 0) >= 1) {
+        showToast('سقف گسترش قلمرو با سوخت در این نوبت مصرف شده است (حداکثر ۱ زمین در هر نوبت).', 'warning');
+        return;
+      }
+    }
     isExpansionMode = !isExpansionMode;
     if (isExpansionMode) {
       selectedArmyBox = null;
@@ -827,7 +989,8 @@ function setupWarEventListeners() {
         soldiers: 10
       }, res => {
         if (res.success) {
-          showToast(`۱۰ سرباز به باکس ارتش (${targetBox.hexId}) شارژ شد. ⚡`, 'success');
+          const costStr = (res.cost || 20000).toLocaleString('fa-IR');
+          showToast(`۱۰ سرباز به باکس ارتش (${targetBox.hexId}) شارژ شد (هزینه: ${costStr} سکه). ⚡`, 'success');
         } else {
           showToast(res.error, 'error');
         }
@@ -913,7 +1076,7 @@ function setupWarEventListeners() {
   const updateReinfCost = () => {
     if (!inputReinforce) return;
     const val = parseInt(inputReinforce.value, 10) || 0;
-    if (reinfCostPreview) reinfCostPreview.textContent = `هزینه: ${(val * 1000).toLocaleString('fa-IR')} سکه`;
+    if (reinfCostPreview) reinfCostPreview.textContent = `هزینه: ${(val * 2000).toLocaleString('fa-IR')} سکه`;
   };
 
   document.querySelectorAll('.btn-preset-reinf').forEach(btn => {
@@ -948,7 +1111,8 @@ function setupWarEventListeners() {
         soldiers
       }, res => {
         if (res.success) {
-          showToast(`${soldiers} سرباز به باکس ارتش در خط مقدم تزریق شد. ⚡`, 'success');
+          const costStr = (res.cost || soldiers * 2000).toLocaleString('fa-IR');
+          showToast(`${soldiers} سرباز با موفقیت به باکس ارتش در خط مقدم تزریق شد (هزینه: ${costStr} سکه). ⚡`, 'success');
         } else {
           showToast(res.error, 'error');
         }

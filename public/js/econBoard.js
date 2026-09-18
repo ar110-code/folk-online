@@ -18,6 +18,16 @@ function calcTier(tokens) {
   return 4;
 }
 
+// Tech Progression: Tool Price Discounts (Base 5000: L2 -1000, L5 -1000, L7 -1000, L10 -1000)
+function getToolPrice(techLevel = 1) {
+  let discount = 0;
+  if (techLevel >= 2) discount += 1000;
+  if (techLevel >= 5) discount += 1000;
+  if (techLevel >= 7) discount += 1000;
+  if (techLevel >= 10) discount += 1000;
+  return Math.max(1000, 5000 - discount);
+}
+
 function initEconBoard() {
   renderFlowerSvg();
   setupEconEventListeners();
@@ -96,14 +106,15 @@ function renderFlowerSvg() {
     petalGroup.appendChild(divider);
 
     // Petal Title & Icon
+    const isLocked = !!pData.locked;
     const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     label.setAttribute('x', '0');
     label.setAttribute('y', '-320');
     label.setAttribute('text-anchor', 'middle');
-    label.setAttribute('fill', '#f1f5f9');
+    label.setAttribute('fill', isLocked ? '#f87171' : '#f1f5f9');
     label.setAttribute('font-size', '13');
     label.setAttribute('font-weight', '700');
-    label.textContent = `${p.icon} ${p.name}`;
+    label.textContent = isLocked ? `🔒 ${p.name} (اشغال)` : `${p.icon} ${p.name}`;
     petalGroup.appendChild(label);
 
     // Output Badge
@@ -111,8 +122,8 @@ function renderFlowerSvg() {
     outputCircle.setAttribute('cx', '0');
     outputCircle.setAttribute('cy', '-110');
     outputCircle.setAttribute('r', '18');
-    outputCircle.setAttribute('fill', output > 0 ? '#059669' : '#1f2937');
-    outputCircle.setAttribute('stroke', '#10b981');
+    outputCircle.setAttribute('fill', isLocked ? '#7f1d1d' : (output > 0 ? '#059669' : '#1f2937'));
+    outputCircle.setAttribute('stroke', isLocked ? '#ef4444' : '#10b981');
     outputCircle.setAttribute('stroke-width', '2');
     petalGroup.appendChild(outputCircle);
 
@@ -121,10 +132,22 @@ function renderFlowerSvg() {
     outputText.setAttribute('y', '-105');
     outputText.setAttribute('text-anchor', 'middle');
     outputText.setAttribute('fill', '#fff');
-    outputText.setAttribute('font-size', '12');
+    outputText.setAttribute('font-size', isLocked ? '11' : '12');
     outputText.setAttribute('font-weight', 'bold');
-    outputText.textContent = output;
+    outputText.textContent = isLocked ? '🔒 ۰' : output;
     petalGroup.appendChild(outputText);
+
+    if (isLocked) {
+      const lockOverlayText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      lockOverlayText.setAttribute('x', '0');
+      lockOverlayText.setAttribute('y', '-70');
+      lockOverlayText.setAttribute('text-anchor', 'middle');
+      lockOverlayText.setAttribute('fill', '#ef4444');
+      lockOverlayText.setAttribute('font-size', '10');
+      lockOverlayText.setAttribute('font-weight', 'bold');
+      lockOverlayText.textContent = '⛔ خط تولید متوقف';
+      petalGroup.appendChild(lockOverlayText);
+    }
 
     // Tool Allocation Controls (Left Side)
     const toolBtnPlus = createSvgButton(-45, -170, '+ ابزار', '#06b6d4', () => modifyPetalTokens(p.key, 'tool', 1));
@@ -216,6 +239,10 @@ function modifyPetalTokens(petalKey, type, delta) {
   }
   const country = currentRoom.countries[myPlayer.countryId];
   const p = country.economy.petals[petalKey];
+  if (p && p.locked) {
+    showToast('⚠️ این مرکز تولیدی توسط ارتش دشمن اشغال شده و خط تولید آن تا زمان آزادسازی قفل است!', 'error');
+    return;
+  }
   let newTool = p.toolTokens;
   let newPop = p.popTokens;
 
@@ -244,7 +271,8 @@ function setupEconEventListeners() {
   btnBuyTool.addEventListener('click', () => {
     socket.emit('buy_tool', { countryId: myPlayer.countryId, count: 1 }, res => {
       if (res.success) {
-        showToast('۱ ابزار دائمی خریداری شد.', 'success');
+        const unitPrice = res.unitPrice || 5000;
+        showToast(`۱ ابزار دائمی به قیمت ${unitPrice.toLocaleString('fa-IR')} سکه خریداری شد.`, 'success');
       } else {
         showToast(res.error, 'error');
       }
@@ -363,6 +391,18 @@ function updateEconUIStats() {
   if (popEl) popEl.textContent = econ.populationInventory;
   if (taxEl) taxEl.textContent = econ.unpaidTaxes;
 
+  // Dynamic tool price button update based on tech level
+  const btnBuyTool = document.getElementById('btn-buy-tool');
+  if (btnBuyTool) {
+    const currentPrice = getToolPrice(country.techLevel || 1);
+    btnBuyTool.innerHTML = `خرید ۱ ابزار دائمی (${currentPrice.toLocaleString('fa-IR')} سکه)`;
+    if ((country.techLevel || 1) >= 2) {
+      btnBuyTool.title = `تخفیف فناوری سطح ${country.techLevel}: قیمت خرید به ${currentPrice.toLocaleString('fa-IR')} سکه کاهش یافته است.`;
+    } else {
+      btnBuyTool.title = `قیمت پایه: ۵,۰۰۰ سکه (با پیشرفت فناوری در سطوح ۲، ۵، ۷ و ۱۰ قیمت ابزار کاهش می‌یابد).`;
+    }
+  }
+
   // Individual raw resource display
   const rawResources = ['wheat', 'oven', 'brick', 'crane', 'cotton', 'sewing'];
   rawResources.forEach(key => {
@@ -412,30 +452,45 @@ function updateEconUIStats() {
     }
   }
 
-  // Populate trade targets (Including 'all' for broadcast to all nations)
-  const tradeTargetSelect = document.getElementById('trade-target-country');
-  if (tradeTargetSelect) {
-    const prevVal = tradeTargetSelect.value;
-    tradeTargetSelect.innerHTML = '';
+  // Populate trade targets
+  populateTradeTargets();
 
-    // Broadcast option
-    const broadcastOpt = document.createElement('option');
-    broadcastOpt.value = 'all';
-    broadcastOpt.textContent = '📢 همه کشورها (پیشنهاد عمومی)';
-    tradeTargetSelect.appendChild(broadcastOpt);
+  // Update craft buttons disabled states based on occupied petals
+  const pMap = econ.petals || {};
+  const btnCraftBread = document.getElementById('btn-craft-bread');
+  const btnCraftBuilding = document.getElementById('btn-craft-building');
+  const btnCraftClothes = document.getElementById('btn-craft-clothes');
 
-    // Individual countries
-    Object.values(currentRoom.countries).forEach(c => {
-      if (c.id !== myPlayer.countryId && !c.isEliminated) {
-        const opt = document.createElement('option');
-        opt.value = c.id;
-        opt.textContent = `کشور ${c.name}`;
-        tradeTargetSelect.appendChild(opt);
-      }
-    });
+  if (btnCraftBread) {
+    const isLocked = pMap.wheat?.locked || pMap.oven?.locked;
+    if (isLocked) {
+      btnCraftBread.classList.add('disabled-locked-line');
+      btnCraftBread.title = 'خط تولید نان به دلیل اشغال مزارع گندم یا کوره توسط ارتش دشمن قفل است!';
+    } else {
+      btnCraftBread.classList.remove('disabled-locked-line');
+      btnCraftBread.title = '';
+    }
+  }
 
-    if (prevVal && tradeTargetSelect.querySelector(`option[value="${prevVal}"]`)) {
-      tradeTargetSelect.value = prevVal;
+  if (btnCraftBuilding) {
+    const isLocked = pMap.brick?.locked || pMap.crane?.locked;
+    if (isLocked) {
+      btnCraftBuilding.classList.add('disabled-locked-line');
+      btnCraftBuilding.title = 'خط تولید ساختمان به دلیل اشغال کارخانه آجر یا جرثقیل توسط ارتش دشمن قفل است!';
+    } else {
+      btnCraftBuilding.classList.remove('disabled-locked-line');
+      btnCraftBuilding.title = '';
+    }
+  }
+
+  if (btnCraftClothes) {
+    const isLocked = pMap.cotton?.locked || pMap.sewing?.locked;
+    if (isLocked) {
+      btnCraftClothes.classList.add('disabled-locked-line');
+      btnCraftClothes.title = 'خط تولید لباس به دلیل اشغال مزارع پنبه یا کارگاه خیاطی توسط ارتش دشمن قفل است!';
+    } else {
+      btnCraftClothes.classList.remove('disabled-locked-line');
+      btnCraftClothes.title = '';
     }
   }
 }
@@ -444,6 +499,49 @@ function updateEconUIStats() {
 window.activeIncomingTrades = window.activeIncomingTrades || new Map();
 let currentViewingTradeId = null;
 let tradeHandlersInitialized = false;
+
+const TRADE_GOOD_NAMES = {
+  bread: 'نان 🍞',
+  building: 'ساختمان 🏛️',
+  clothes: 'لباس 👔',
+  wheat: 'گندم 🌾',
+  oven: 'کوره/تنور 🔥',
+  brick: 'آجر 🧱',
+  crane: 'جرثقیل 🏗️',
+  cotton: 'پنبه ☁️',
+  sewing: 'چرخ خیاطی 🧵',
+  fuel: 'سوخت ⛽'
+};
+
+function populateTradeTargets() {
+  const tradeTargetSelect = document.getElementById('trade-target-country');
+  if (!tradeTargetSelect || !currentRoom?.countries || !myPlayer?.countryId) return;
+
+  const prevVal = tradeTargetSelect.value;
+  tradeTargetSelect.innerHTML = '';
+
+  // Broadcast option
+  const broadcastOpt = document.createElement('option');
+  broadcastOpt.value = 'all';
+  broadcastOpt.textContent = '📢 همه کشورها (پیشنهاد عمومی)';
+  tradeTargetSelect.appendChild(broadcastOpt);
+
+  // Individual countries
+  Object.values(currentRoom.countries).forEach(c => {
+    if (c.id !== myPlayer.countryId && !c.isEliminated) {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `کشور ${c.name}`;
+      tradeTargetSelect.appendChild(opt);
+    }
+  });
+
+  if (prevVal && tradeTargetSelect.querySelector(`option[value="${prevVal}"]`)) {
+    tradeTargetSelect.value = prevVal;
+  } else {
+    tradeTargetSelect.value = 'all';
+  }
+}
 
 function playTradeNotificationChime() {
   try {
@@ -477,6 +575,79 @@ function playTradeNotificationChime() {
     // Ignore audio error
   }
 }
+
+function renderTradeAlertCard(trade) {
+  const container = document.getElementById('trade-alert-container');
+  if (!container) return;
+  container.classList.remove('hidden');
+
+  const existing = document.getElementById(`trade_alert_${trade.id}`);
+  if (existing) return;
+
+  const fromCountry = currentRoom?.countries?.[trade.fromCountryId];
+  const fromName = fromCountry ? fromCountry.name : trade.fromCountryId;
+  const fromColor = fromCountry ? fromCountry.color : '#8b5cf6';
+  const isBuy = trade.tradeType === 'buy';
+  const isBroadcast = trade.toCountryId === 'all';
+  const goodTitle = TRADE_GOOD_NAMES[trade.goodType] || trade.goodType;
+  const badgeText = isBroadcast
+    ? (isBuy ? '📢 درخواست خرید عمومی' : '📢 پیشنهاد فروش عمومی')
+    : (isBuy ? '📥 درخواست خرید از شما' : '📤 پیشنهاد فروش به شما');
+
+  const card = document.createElement('div');
+  card.id = `trade_alert_${trade.id}`;
+  card.className = `trade-alert-card ${isBuy ? 'is-buy-mode' : 'is-sell-mode'}`;
+
+  let termsText = '';
+  if (isBuy) {
+    termsText = `کشور <strong style="color:${fromColor};">«${fromName}»</strong> درخواست خرید <strong>${trade.quantity} عدد ${goodTitle}</strong> به مبلغ کل <strong style="color:#fbbf24;">${trade.price.toLocaleString('fa-IR')} سکه</strong> را دارد. (در صورت قبول، سکه به خزانه شما واریز و کالا تحویل می‌شود).`;
+  } else {
+    termsText = `کشور <strong style="color:${fromColor};">«${fromName}»</strong> پیشنهاد فروش <strong>${trade.quantity} عدد ${goodTitle}</strong> به مبلغ کل <strong style="color:#fbbf24;">${trade.price.toLocaleString('fa-IR')} سکه</strong> را داده است. (در صورت قبول، سکه از خزانه شما پرداخت و کالا تحویل می‌شود).`;
+  }
+
+  if (isBroadcast) {
+    termsText += `<div style="margin-top: 6px; font-size: 0.78rem; color: #fbbf24;">⚡ پیشنهاد عمومی به تمام کشورها: اولین کشوری که قبول کند معامله منعقد خواهد شد.</div>`;
+  }
+
+  card.innerHTML = `
+    <div class="trade-alert-header">
+      <div class="trade-alert-title-group">
+        <span class="trade-alert-badge ${isBuy ? 'badge-buy' : 'badge-sell'}">${badgeText}</span>
+        <span class="trade-alert-country-pill" style="border-color: ${fromColor}; color: #ffffff; background: ${fromColor}22;">
+          <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${fromColor}; margin-left:4px;"></span>
+          کشور ${fromName}
+        </span>
+      </div>
+      <button type="button" class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.85rem; line-height: 1; border-radius: 4px; background: rgba(255,255,255,0.08);" onclick="window.dismissTradeAlert('${trade.id}')" title="بستن اعلان">✕</button>
+    </div>
+    <div class="trade-alert-body">
+      ${termsText}
+    </div>
+    <div class="trade-alert-actions">
+      <button onclick="window.openTradeDetailModal('${trade.id}')" class="btn btn-primary" style="padding: 5px 12px; font-size: 0.82rem;">👁️ بررسی جزئیات</button>
+      <button onclick="window.acceptTradeOffer('${trade.id}')" class="btn btn-success" style="padding: 5px 12px; font-size: 0.82rem; font-weight: bold;">✅ قبول فوری</button>
+      <button onclick="window.rejectTradeOffer('${trade.id}')" class="btn btn-secondary" style="padding: 5px 12px; font-size: 0.82rem;">❌ رد</button>
+    </div>
+  `;
+
+  container.prepend(card);
+}
+
+window.dismissTradeAlert = function(tradeId) {
+  const card = document.getElementById(`trade_alert_${tradeId}`);
+  if (card) {
+    card.style.opacity = '0';
+    card.style.transform = 'translateY(-20px)';
+    card.style.transition = 'all 0.3s ease';
+    setTimeout(() => {
+      card.remove();
+      const container = document.getElementById('trade-alert-container');
+      if (container && container.children.length === 0) {
+        container.classList.add('hidden');
+      }
+    }, 300);
+  }
+};
 
 function updateTradeFormUI() {
   const inputTradeType = document.getElementById('trade-action-type');
@@ -523,6 +694,8 @@ function initTradeHandlers() {
   if (tradeHandlersInitialized) return;
   tradeHandlersInitialized = true;
 
+  populateTradeTargets();
+
   // Toggle Trade Action Mode (Sell vs Buy)
   const btnModeSell = document.getElementById('btn-trade-mode-sell');
   const btnModeBuy = document.getElementById('btn-trade-mode-buy');
@@ -555,6 +728,7 @@ function initTradeHandlers() {
   // Submit Trade Proposal
   if (btnPropose) {
     btnPropose.addEventListener('click', () => {
+      populateTradeTargets();
       const toCountryId = document.getElementById('trade-target-country')?.value || 'all';
       const goodType = document.getElementById('trade-good-type')?.value;
       const quantity = parseInt(document.getElementById('trade-quantity')?.value) || 1;
@@ -620,7 +794,7 @@ function initTradeHandlers() {
     });
   }
 
-  // Incoming trade proposals event (Sent to Economy Minister and President)
+  // Incoming trade proposals event (Sent to Economy Minister and President or Solo Player)
   socket.on('trade_proposed', trade => {
     // Proposer does not receive as incoming proposal
     if (trade.fromCountryId === myPlayer.countryId) return;
@@ -628,9 +802,13 @@ function initTradeHandlers() {
     // Must be targeted to us specifically or broadcast to 'all'
     if (trade.toCountryId !== 'all' && trade.toCountryId !== myPlayer.countryId) return;
 
-    if (myPlayer.role !== 'economy' && myPlayer.role !== 'president') return;
+    const isEconOrPres = myPlayer.role === 'economy' || myPlayer.role === 'president';
+    const myCountry = currentRoom?.countries?.[myPlayer.countryId];
+    const isSolo = myCountry && !myCountry.players?.economy && !myCountry.players?.president;
+    if (!isEconOrPres && !isSolo) return;
 
     window.activeIncomingTrades.set(trade.id, trade);
+    renderTradeAlertCard(trade);
     updateIncomingTradeUI(trade);
     playTradeNotificationChime();
   });
@@ -638,6 +816,7 @@ function initTradeHandlers() {
   // Trade accepted event
   socket.on('trade_accepted', trade => {
     window.activeIncomingTrades.delete(trade.id);
+    window.dismissTradeAlert(trade.id);
     document.getElementById(`trade_offer_${trade.id}`)?.remove();
 
     if (currentViewingTradeId === trade.id) {
@@ -658,6 +837,7 @@ function initTradeHandlers() {
   // Trade rejected / cancelled event
   socket.on('trade_rejected', ({ tradeId, cancelledByProposer }) => {
     window.activeIncomingTrades.delete(tradeId);
+    window.dismissTradeAlert(tradeId);
     document.getElementById(`trade_offer_${tradeId}`)?.remove();
 
     if (currentViewingTradeId === tradeId) {
@@ -675,6 +855,7 @@ function initTradeHandlers() {
   // Trade dismissed locally
   socket.on('trade_dismissed', ({ tradeId }) => {
     window.activeIncomingTrades.delete(tradeId);
+    window.dismissTradeAlert(tradeId);
     document.getElementById(`trade_offer_${tradeId}`)?.remove();
 
     if (currentViewingTradeId === tradeId) {
@@ -689,11 +870,11 @@ function initTradeHandlers() {
 }
 
 function updateIncomingTradeUI(latestTrade) {
-  const goodNames = { bread: 'نان 🍞', building: 'ساختمان 🏛️', clothes: 'لباس 👔' };
   const fromCountry = currentRoom?.countries?.[latestTrade.fromCountryId];
   const fromName = fromCountry ? fromCountry.name : latestTrade.fromCountryId;
   const isBuy = latestTrade.tradeType === 'buy';
   const isBroadcast = latestTrade.toCountryId === 'all';
+  const goodTitle = TRADE_GOOD_NAMES[latestTrade.goodType] || latestTrade.goodType;
 
   // 1. Update Floating Bottom Toast
   const bottomToast = document.getElementById('trade-bottom-toast');
@@ -705,17 +886,17 @@ function updateIncomingTradeUI(latestTrade) {
       toastBadge.textContent = isBuy ? '📢 درخواست خرید عمومی' : '📢 پیشنهاد فروش عمومی';
       toastBadge.style.background = isBuy ? '#2563eb' : '#7c3aed';
       toastSummary.textContent = isBuy
-        ? `کشور ${fromName} به همه کشورها درخواست خرید ${latestTrade.quantity} ${goodNames[latestTrade.goodType]} به قیمت ${latestTrade.price.toLocaleString('fa-IR')} سکه داده است.`
-        : `کشور ${fromName} به همه کشورها پیشنهاد فروش ${latestTrade.quantity} ${goodNames[latestTrade.goodType]} به قیمت ${latestTrade.price.toLocaleString('fa-IR')} سکه داده است.`;
+        ? `کشور ${fromName} به همه کشورها درخواست خرید ${latestTrade.quantity} ${goodTitle} به قیمت ${latestTrade.price.toLocaleString('fa-IR')} سکه داده است.`
+        : `کشور ${fromName} به همه کشورها پیشنهاد فروش ${latestTrade.quantity} ${goodTitle} به قیمت ${latestTrade.price.toLocaleString('fa-IR')} سکه داده است.`;
     } else {
       if (isBuy) {
         toastBadge.textContent = '📥 درخواست خرید';
         toastBadge.style.background = '#2563eb';
-        toastSummary.textContent = `کشور ${fromName} درخواست خرید ${latestTrade.quantity} ${goodNames[latestTrade.goodType]} به قیمت ${latestTrade.price.toLocaleString('fa-IR')} سکه دارد.`;
+        toastSummary.textContent = `کشور ${fromName} درخواست خرید ${latestTrade.quantity} ${goodTitle} به قیمت ${latestTrade.price.toLocaleString('fa-IR')} سکه دارد.`;
       } else {
         toastBadge.textContent = '📤 پیشنهاد فروش';
         toastBadge.style.background = '#7c3aed';
-        toastSummary.textContent = `کشور ${fromName} پیشنهاد فروش ${latestTrade.quantity} ${goodNames[latestTrade.goodType]} به قیمت ${latestTrade.price.toLocaleString('fa-IR')} سکه دارد.`;
+        toastSummary.textContent = `کشور ${fromName} پیشنهاد فروش ${latestTrade.quantity} ${goodTitle} به قیمت ${latestTrade.price.toLocaleString('fa-IR')} سکه دارد.`;
       }
     }
     bottomToast.classList.remove('hidden');
@@ -748,7 +929,7 @@ function updateIncomingTradeUI(latestTrade) {
         <div style="display: flex; align-items: center; gap: 8px;">
           ${badgeHtml}
           <span style="font-size:0.85rem; color:#e2e8f0;">
-            کشور <strong>${fromName}</strong>: ${latestTrade.quantity} عدد ${goodNames[latestTrade.goodType]} به قیمت <strong>${latestTrade.price.toLocaleString('fa-IR')}</strong> سکه
+            کشور <strong>${fromName}</strong>: ${latestTrade.quantity} عدد ${goodTitle} به قیمت <strong>${latestTrade.price.toLocaleString('fa-IR')}</strong> سکه
           </span>
         </div>
         <div style="display:flex; gap:6px;">
@@ -787,12 +968,12 @@ window.openTradeDetailModal = function(tradeId) {
   }
 
   currentViewingTradeId = tradeId;
-  const goodNames = { bread: 'نان 🍞', building: 'ساختمان 🏛️', clothes: 'لباس 👔' };
   const fromCountry = currentRoom?.countries?.[trade.fromCountryId];
   const myCountry = currentRoom?.countries?.[myPlayer.countryId];
   const fromName = fromCountry ? fromCountry.name : trade.fromCountryId;
   const isBuy = trade.tradeType === 'buy';
   const isBroadcast = trade.toCountryId === 'all';
+  const goodTitle = TRADE_GOOD_NAMES[trade.goodType] || trade.goodType;
 
   const modal = document.getElementById('trade-detail-modal');
   const banner = document.getElementById('trade-modal-direction-banner');
@@ -832,15 +1013,31 @@ window.openTradeDetailModal = function(tradeId) {
     }
     typeDesc.style.color = isBuy ? '#60a5fa' : '#c084fc';
   }
-  if (goodDesc) goodDesc.textContent = goodNames[trade.goodType] || trade.goodType;
+  if (goodDesc) goodDesc.textContent = goodTitle;
   if (qtyDesc) qtyDesc.textContent = `${trade.quantity} عدد`;
   if (priceDesc) priceDesc.textContent = `${trade.price.toLocaleString('fa-IR')} سکه`;
 
   // Feasibility Check
   if (isBuy) {
     // Other country wants to buy from our storage: we are seller
-    const myStorage = myCountry?.economy?.storage?.[trade.goodType] || 0;
-    const canDeliver = myStorage >= trade.quantity;
+    let myStorage = 0;
+    if (trade.goodType === 'fuel') {
+      myStorage = myCountry?.military?.fuelTokens || 0;
+    } else {
+      myStorage = myCountry?.economy?.storage?.[trade.goodType] || 0;
+    }
+
+    const recipes = {
+      bread: ['wheat', 'oven'],
+      building: ['brick', 'crane'],
+      clothes: ['cotton', 'sewing']
+    };
+    const recipe = recipes[trade.goodType];
+    const canAutoCraft = recipe && 
+      ((myCountry?.economy?.storage?.[recipe[0]] || 0) >= (trade.quantity - myStorage)) && 
+      ((myCountry?.economy?.storage?.[recipe[1]] || 0) >= (trade.quantity - myStorage));
+
+    const canDeliver = myStorage >= trade.quantity || canAutoCraft;
 
     if (explanation) {
       explanation.textContent = `کشور ${fromName} درخواست دارد این کالا را از انبار شما خریداری نماید. در صورت پذیرش، مبلغ ${trade.price.toLocaleString('fa-IR')} سکه به خزانه ملی شما واریز و کالا تحویل داده می‌شود.`;
@@ -852,7 +1049,11 @@ window.openTradeDetailModal = function(tradeId) {
     if (balanceAlert) {
       if (canDeliver) {
         balanceAlert.className = 'trade-balance-alert ok';
-        balanceAlert.innerHTML = `✅ موجودی کالای شما در انبار: <strong>${myStorage} عدد</strong> (کافی برای انجام معامله)`;
+        if (myStorage >= trade.quantity) {
+          balanceAlert.innerHTML = `✅ موجودی کالای شما در انبار: <strong>${myStorage} عدد</strong> (کافی برای انجام معامله)`;
+        } else {
+          balanceAlert.innerHTML = `⚙️ موجودی مستقیم: <strong>${myStorage} عدد</strong> + تبدیل خودکار مواد اولیه موجود به محصول نهایی (${trade.quantity} عدد)`;
+        }
         if (btnAccept) btnAccept.disabled = false;
       } else {
         balanceAlert.className = 'trade-balance-alert insufficient';
@@ -863,10 +1064,11 @@ window.openTradeDetailModal = function(tradeId) {
   } else {
     // Other country wants to sell goods to us: we are buyer
     const myTreasury = myCountry?.treasury || 0;
-    const canAfford = myTreasury >= trade.price;
+    const myEconBudget = myCountry?.econBudget || 0;
+    const canAfford = (myTreasury >= trade.price) || (myEconBudget >= trade.price);
 
     if (explanation) {
-      explanation.textContent = `کشور ${fromName} به شما پیشنهاد داده است که این کالا را خریداری کنید. در صورت پذیرش، مبلغ ${trade.price.toLocaleString('fa-IR')} سکه از خزانه شما پرداخت شده و کالا به انبار اضافه می‌شود.`;
+      explanation.textContent = `کشور ${fromName} به شما پیشنهاد داده است که این کالا را خریداری کنید. در صورت پذیرش، مبلغ ${trade.price.toLocaleString('fa-IR')} سکه از خزانه/بودجه شما پرداخت شده و کالا به انبار اضافه می‌شود.`;
       if (isBroadcast) {
         explanation.textContent += ' (💡 توجه: این یک آگهی به تمامی کشورهاست؛ اولین کشوری که تأیید کند معامله را انجام خواهد داد).';
       }
@@ -875,11 +1077,11 @@ window.openTradeDetailModal = function(tradeId) {
     if (balanceAlert) {
       if (canAfford) {
         balanceAlert.className = 'trade-balance-alert ok';
-        balanceAlert.innerHTML = `✅ موجودی خزانه ملی شما: <strong>${myTreasury.toLocaleString('fa-IR')} سکه</strong> (سکه کافی است)`;
+        balanceAlert.innerHTML = `✅ موجودی قابل پرداخت: <strong>خزانه ${myTreasury.toLocaleString('fa-IR')} سکه</strong> | <strong>بودجه اقتصاد: ${myEconBudget.toLocaleString('fa-IR')} سکه</strong> (سکه کافی است)`;
         if (btnAccept) btnAccept.disabled = false;
       } else {
         balanceAlert.className = 'trade-balance-alert insufficient';
-        balanceAlert.innerHTML = `❌ موجودی خزانه ملی شما: <strong>${myTreasury.toLocaleString('fa-IR')} سکه</strong> (کسری بودجه خزانه؛ حداقل ${trade.price.toLocaleString('fa-IR')} سکه لازم است)`;
+        balanceAlert.innerHTML = `❌ موجودی خزانه و بودجه شما: <strong>خزانه ${myTreasury.toLocaleString('fa-IR')}</strong> | <strong>بودجه ${myEconBudget.toLocaleString('fa-IR')}</strong> (کسری بودجه؛ حداقل ${trade.price.toLocaleString('fa-IR')} سکه لازم است)`;
         if (btnAccept) btnAccept.disabled = true;
       }
     }
@@ -910,6 +1112,7 @@ window.acceptTradeOffer = function(tradeId) {
     if (res && res.success) {
       showToast('✅ معامله قبول شد و مبادله با موفقیت انجام گرفت.', 'success');
       window.closeTradeModal();
+      window.dismissTradeAlert(tradeId);
       window.activeIncomingTrades.delete(tradeId);
       document.getElementById(`trade_offer_${tradeId}`)?.remove();
       updateBottomToastState();
@@ -924,6 +1127,7 @@ window.rejectTradeOffer = function(tradeId) {
     if (res && res.success) {
       showToast('معامله رد شد.', 'info');
       window.closeTradeModal();
+      window.dismissTradeAlert(tradeId);
       window.activeIncomingTrades.delete(tradeId);
       document.getElementById(`trade_offer_${tradeId}`)?.remove();
       updateBottomToastState();

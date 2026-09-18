@@ -140,6 +140,11 @@ function playDirectLineRingtone() {
 function handleDirectLineIncoming(data) {
   if (!data || !data.channelId) return;
 
+  // Strict check: only process if this channel is in my accessible channels
+  if (!currentChannels || !currentChannels.some(c => c.id === data.channelId)) {
+    return;
+  }
+
   // If already in this channel, don't interrupt with call popup
   if (activeChannelId === data.channelId) {
     showToast(`🟢 ${data.callerRoleName} ${data.callerName} (${data.callerCountryName}) هم‌اکنون در این خط مستقیم حضور دارد.`, 'info');

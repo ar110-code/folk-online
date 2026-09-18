@@ -1,6 +1,8 @@
 // server/gameEngine.js
 // Megagame V4 Core Logic and State Machine - Upgraded with Exact 7-Hex Country Clusters & Encirclement
 
+const { generateRoomPuzzles, sanitizePuzzle, checkPuzzleAnswer } = require('./techPuzzles');
+
 const TIER_THRESHOLDS = [1, 4, 8, 12]; // Required cumulative tokens for Tier 1, 2, 3, 4 (Per PDF v4.2)
 
 function calculateTier(tokens) {
@@ -9,6 +11,28 @@ function calculateTier(tokens) {
   if (tokens < 8) return 2;
   if (tokens < 12) return 3;
   return 4;
+}
+
+// Tech Progression: Tool Price Discounts (Economy)
+// Level 1: 5000 | Level 2: 4000 (-1000) | Level 5: 3000 (-1000) | Level 7: 2000 (-1000) | Level 10: 1000 (-1000)
+function getToolPrice(techLevel = 1) {
+  let discount = 0;
+  if (techLevel >= 2) discount += 1000;
+  if (techLevel >= 5) discount += 1000;
+  if (techLevel >= 7) discount += 1000;
+  if (techLevel >= 10) discount += 1000;
+  return Math.max(1000, 5000 - discount);
+}
+
+// Tech Progression: Military Power Multipliers (War)
+// Level 1-2: 1.0x | Level 3: 1.5x (+0.5) | Level 5: 2.0x (+0.5) | Level 7: 2.5x (+0.5) | Level 10: 3.0x (+0.5)
+function calculateTechMultiplier(techLevel = 1) {
+  let bonus = 0;
+  if (techLevel >= 3) bonus += 0.5;
+  if (techLevel >= 5) bonus += 0.5;
+  if (techLevel >= 7) bonus += 0.5;
+  if (techLevel >= 10) bonus += 0.5;
+  return Number((1.0 + bonus).toFixed(1));
 }
 
 const RESOURCE_KEYS = ['wheat', 'oven', 'brick', 'crane', 'cotton', 'sewing'];
@@ -192,6 +216,9 @@ class MegagameRoom {
       this.members[hostId] = { username: hostUsername.trim(), joinedAt: Date.now() };
     }
 
+    // Seeded 10-Tier Technology Puzzles for this specific room
+    this.roomPuzzles = generateRoomPuzzles(this.roomCode);
+
     this.countries = {};
     COUNTRY_DEFINITIONS.forEach(c => {
       this.countries[c.id] = {
@@ -207,18 +234,19 @@ class MegagameRoom {
         econBudget: 5000,
         techLevel: 1,
         techMultiplier: 1.0,
-        currentPuzzle: generateTechPuzzle(1),
-        puzzleUnlocked: false,
+        currentPuzzle: sanitizePuzzle(this.roomPuzzles[1]),
+        solvedPuzzles: [],
+        puzzleUnlocked: true,
         economy: {
           toolsInventory: 6,
           populationInventory: 10,
           petals: {
-            wheat: { toolTokens: 0, popTokens: 0, locked: false },
-            oven: { toolTokens: 0, popTokens: 0, locked: false },
-            brick: { toolTokens: 0, popTokens: 0, locked: false },
-            crane: { toolTokens: 0, popTokens: 0, locked: false },
-            cotton: { toolTokens: 0, popTokens: 0, locked: false },
-            sewing: { toolTokens: 0, popTokens: 0, locked: false }
+            wheat: { toolTokens: 0, popTokens: 0, locked: false, occupiedBy: null, name: 'گندم' },
+            oven: { toolTokens: 0, popTokens: 0, locked: false, occupiedBy: null, name: 'کوره/تنور' },
+            brick: { toolTokens: 0, popTokens: 0, locked: false, occupiedBy: null, name: 'آجر' },
+            crane: { toolTokens: 0, popTokens: 0, locked: false, occupiedBy: null, name: 'جرثقیل' },
+            cotton: { toolTokens: 0, popTokens: 0, locked: false, occupiedBy: null, name: 'پنبه' },
+            sewing: { toolTokens: 0, popTokens: 0, locked: false, occupiedBy: null, name: 'چرخ خیاطی' }
           },
           // Individual resource inventory
           storage: {
@@ -235,7 +263,9 @@ class MegagameRoom {
             { id: `${c.id}_box_1`, hexId: null, soldiers: 30, movementRemaining: 2 }
           ],
           capitalSoldiers: 15,
-          lossesInflicted: 0
+          mainRegionDefense: 15,
+          lossesInflicted: 0,
+          fuelExpansionsThisTurn: 0
         },
         players: {
           president: null,
@@ -265,6 +295,8 @@ class MegagameRoom {
             owner: 'neutral',
             isCapital: false,
             isResourceZone: false,
+            isMainRegion: false,
+            baseDefense: 0,
             resourceType: null,
             resourceName: null,
             armyBoxes: []
@@ -308,21 +340,25 @@ class MegagameRoom {
       const cr = centerHex.r;
       const capHexId = centerHex.id;
 
-      // Assign Capital
+      // Assign Capital (Main Region with 15 Base Defense)
       map[capHexId].owner = cId;
       map[capHexId].isCapital = true;
+      map[capHexId].isMainRegion = true;
       map[capHexId].capitalCountry = cId;
+      map[capHexId].baseDefense = 15;
 
-      // Assign 6 Surrounding Resource Petals
+      // Assign 6 Surrounding Resource Petals (Main Regions with 15 Base Defense each)
       const dirs = getOddRNeighbors(cq, cr);
       dirs.forEach(dir => {
         const nHexId = `hex_${cq + dir.dq}_${cr + dir.dr}`;
         if (map[nHexId]) {
           map[nHexId].owner = cId;
           map[nHexId].isResourceZone = true;
+          map[nHexId].isMainRegion = true;
           map[nHexId].resourceCountry = cId;
           map[nHexId].resourceType = dir.res;
           map[nHexId].resourceName = dir.name;
+          map[nHexId].baseDefense = 15;
         }
       });
 
@@ -584,6 +620,8 @@ class MegagameRoom {
             h.owner = 'neutral';
             h.isCapital = false;
             h.isResourceZone = false;
+            h.isMainRegion = false;
+            h.baseDefense = 0;
             h.capitalCountry = null;
             h.resourceCountry = null;
             h.resourceType = null;
@@ -614,10 +652,13 @@ class MegagameRoom {
 
   resetTurnMovement(countryId) {
     const country = this.countries[countryId];
-    if (country && country.military && country.military.armyBoxes) {
-      country.military.armyBoxes.forEach(b => {
-        b.movementRemaining = 2;
-      });
+    if (country && country.military) {
+      if (country.military.armyBoxes) {
+        country.military.armyBoxes.forEach(b => {
+          b.movementRemaining = 2;
+        });
+      }
+      country.military.fuelExpansionsThisTurn = 0;
     }
   }
 
@@ -626,7 +667,10 @@ class MegagameRoom {
     this.noonCycle = 1;
     this.noonActiveCountryIndex = 0;
     this.phaseTimer = 40;
-    Object.values(this.countries).forEach(c => { c.economy.hasHarvestedThisNoon = false; });
+    Object.values(this.countries).forEach(c => {
+      c.economy.hasHarvestedThisNoon = false;
+      if (c.military) c.military.fuelExpansionsThisTurn = 0;
+    });
     if (this.activeCountryOrder && this.activeCountryOrder.length > 0) {
       this.resetTurnMovement(this.activeCountryOrder[0]);
     }
@@ -725,15 +769,33 @@ class MegagameRoom {
     return { success: true, economy: country.economy };
   }
 
+  getToolPrice(techLevel) {
+    return getToolPrice(techLevel);
+  }
+
+  calculateTechMultiplier(techLevel) {
+    return calculateTechMultiplier(techLevel);
+  }
+
   buyTool(countryId, count = 1) {
     const country = this.countries[countryId];
-    const cost = count * 5000;
+    const unitPrice = this.getToolPrice(country.techLevel || 1);
+    const cost = count * unitPrice;
     if ((country.econBudget || 0) < cost) {
-      return { success: false, error: 'بودجه وزارت اقتصاد برای خرید ابزار کافی نیست. از رئیس‌جمهور درخواست بودجه کنید.' };
+      return {
+        success: false,
+        error: `بودجه وزارت اقتصاد برای خرید ابزار کافی نیست (${cost.toLocaleString('fa-IR')} سکه نیاز است؛ هر ابزار: ${unitPrice.toLocaleString('fa-IR')} سکه). از رئیس‌جمهور درخواست بودجه کنید.`
+      };
     }
     country.econBudget -= cost;
     country.economy.toolsInventory += count;
-    return { success: true, econBudget: country.econBudget, toolsInventory: country.economy.toolsInventory };
+    return {
+      success: true,
+      cost,
+      unitPrice,
+      econBudget: country.econBudget,
+      toolsInventory: country.economy.toolsInventory
+    };
   }
 
   // Called at noon: harvest production from petals into individual resource storage
@@ -787,6 +849,24 @@ class MegagameRoom {
     }
 
     const [r1, r2] = recipe.inputs;
+    const p1 = country.economy.petals[r1];
+    const p2 = country.economy.petals[r2];
+    const productNamesFa = { bread: 'نان', building: 'ساختمان', clothes: 'لباس' };
+    const pNameFa = productNamesFa[productType] || productType;
+
+    if (p1 && p1.locked) {
+      return {
+        success: false,
+        error: `امکان تولید ${pNameFa} وجود ندارد! مرکز تولید ${p1.name || r1} توسط ارتش دشمن اشغال شده و خط تولید قفل است.`
+      };
+    }
+    if (p2 && p2.locked) {
+      return {
+        success: false,
+        error: `امکان تولید ${pNameFa} وجود ندارد! مرکز تولید ${p2.name || r2} توسط ارتش دشمن اشغال شده و خط تولید قفل است.`
+      };
+    }
+
     if ((storage[r1] || 0) < 1 || (storage[r2] || 0) < 1) {
       return {
         success: false,
@@ -846,6 +926,19 @@ class MegagameRoom {
 
     // 2. Otherwise, check if we have enough raw inputs to craft and sell 1 unit directly
     const [r1, r2] = recipe.inputs;
+    const p1 = country.economy.petals[r1];
+    const p2 = country.economy.petals[r2];
+    const productNamesFa = { bread: 'نان', building: 'ساختمان', clothes: 'لباس' };
+    const pNameFa = productNamesFa[productType] || productType;
+
+    if ((p1 && p1.locked) || (p2 && p2.locked)) {
+      const lockedFacility = (p1 && p1.locked) ? (p1.name || r1) : (p2.name || r2);
+      return {
+        success: false,
+        error: `امکان ساخت و فروش مستقیم ${pNameFa} وجود ندارد چون مرکز تولید ${lockedFacility} توسط دشمن تصرف شده است.`
+      };
+    }
+
     if ((storage[r1] || 0) < 1 || (storage[r2] || 0) < 1) {
       return {
         success: false,
@@ -971,16 +1064,20 @@ class MegagameRoom {
 
   reinforceBox(countryId, boxId, soldiers) {
     const country = this.countries[countryId];
-    const cost = soldiers * 1000; // Per PDF v4.2: 1000 coins per reinforced soldier
+    const unitCost = 2000; // 2000 coins per reinforced soldier
+    const cost = soldiers * unitCost;
     if ((country.warBudget || 0) < cost) {
-      return { success: false, error: 'بودجه وزارت جنگ برای شارژ ارتش در خط مقدم کافی نیست. از رئیس‌جمهور درخواست بودجه کنید.' };
+      return {
+        success: false,
+        error: `بودجه وزارت جنگ برای شارژ ارتش در خط مقدم کافی نیست (${cost.toLocaleString('fa-IR')} سکه نیاز است؛ هر سرباز: ${unitCost.toLocaleString('fa-IR')} سکه). از رئیس‌جمهور درخواست بودجه کنید.`
+      };
     }
     const box = country.military.armyBoxes.find(b => b.id === boxId);
     if (!box) return { success: false, error: 'باکس ارتش یافت نشد.' };
 
     country.warBudget -= cost;
     box.soldiers += soldiers;
-    return { success: true, box, warBudget: country.warBudget };
+    return { success: true, box, warBudget: country.warBudget, cost, unitCost };
   }
 
   moveArmyBox(countryId, boxId, targetHexId) {
@@ -1060,6 +1157,10 @@ class MegagameRoom {
       return { success: false, error: 'کشور نامعتبر یا حذف شده است.' };
     }
 
+    if ((country.military.fuelExpansionsThisTurn || 0) >= 1) {
+      return { success: false, error: 'در هر نوبت فقط می‌توانید ۱ زمین را با سوخت گسترش دهید.' };
+    }
+
     const targetHex = this.hexMap[targetHexId];
     if (!targetHex) {
       return { success: false, error: 'هکس نامعتبر است.' };
@@ -1083,6 +1184,7 @@ class MegagameRoom {
     }
 
     country.military.fuelTokens -= 1;
+    country.military.fuelExpansionsThisTurn = (country.military.fuelExpansionsThisTurn || 0) + 1;
     targetHex.owner = countryId;
 
     this.syncResourceLocks();
@@ -1091,7 +1193,8 @@ class MegagameRoom {
     return {
       success: true,
       targetHex,
-      fuelTokens: country.military.fuelTokens
+      fuelTokens: country.military.fuelTokens,
+      fuelExpansionsThisTurn: country.military.fuelExpansionsThisTurn
     };
   }
 
@@ -1101,12 +1204,12 @@ class MegagameRoom {
     const defCountry = this.countries[defCountryId];
 
     const defBoxes = defCountry.military.armyBoxes.filter(b => b.hexId === targetHex.id);
-    let defSoldiers = defBoxes.reduce((acc, b) => acc + b.soldiers, 0);
+    const defBoxesSoldiers = defBoxes.reduce((acc, b) => acc + b.soldiers, 0);
 
     const isCapital = targetHex.isCapital && targetHex.capitalCountry === defCountryId;
-    if (isCapital) {
-      defSoldiers += defCountry.military.capitalSoldiers;
-    }
+    const isMainRegion = !!(targetHex.isMainRegion || targetHex.isCapital || targetHex.isResourceZone);
+    const baseDefense = (targetHex.baseDefense !== undefined) ? targetHex.baseDefense : (isMainRegion ? 15 : 0);
+    let defSoldiers = defBoxesSoldiers + baseDefense;
 
     const initialAttSoldiers = attBox.soldiers;
     const initialDefSoldiers = defSoldiers;
@@ -1118,7 +1221,7 @@ class MegagameRoom {
     const attPower = initialAttSoldiers * attTechMultiplier;
     const defPower = initialDefSoldiers * totalDefMultiplier;
 
-    let winner, loser, survivingSoldiers;
+    let winner, loser, survivingSoldiers, lootedResource = null;
 
     if (attPower >= defPower) {
       winner = attCountryId;
@@ -1133,10 +1236,67 @@ class MegagameRoom {
 
       defCountry.military.armyBoxes = defCountry.military.armyBoxes.filter(b => b.hexId !== targetHex.id);
 
+      // Resource Zone Conquest & Storage Looting
+      if (targetHex.isResourceZone && targetHex.resourceType) {
+        const resType = targetHex.resourceType;
+        const resName = targetHex.resourceName || resType;
+        const homeCountryId = targetHex.resourceCountry || defCountryId;
+        const homeCountry = this.countries[homeCountryId];
+
+        let lootedQty = 0;
+        if (homeCountry && homeCountry.economy && homeCountry.economy.storage) {
+          const homeQty = homeCountry.economy.storage[resType] || 0;
+          if (homeQty > 0) {
+            homeCountry.economy.storage[resType] = 0;
+            lootedQty += homeQty;
+          }
+        }
+        if (defCountryId !== homeCountryId && defCountry && defCountry.economy && defCountry.economy.storage) {
+          const defQty = defCountry.economy.storage[resType] || 0;
+          if (defQty > 0) {
+            defCountry.economy.storage[resType] = 0;
+            lootedQty += defQty;
+          }
+        }
+
+        if (!attCountry.economy) attCountry.economy = { storage: {} };
+        if (!attCountry.economy.storage) attCountry.economy.storage = {};
+        attCountry.economy.storage[resType] = (attCountry.economy.storage[resType] || 0) + lootedQty;
+
+        if (homeCountry && homeCountry.economy && homeCountry.economy.petals && homeCountry.economy.petals[resType]) {
+          homeCountry.economy.petals[resType].locked = true;
+          homeCountry.economy.petals[resType].occupiedBy = attCountryId;
+        }
+
+        lootedResource = {
+          type: resType,
+          name: resName,
+          quantity: lootedQty,
+          fromCountryId: homeCountryId,
+          toCountryId: attCountryId
+        };
+      }
+
       if (isCapital) {
         defCountry.isEliminated = true;
         attCountry.treasury += defCountry.treasury;
         defCountry.treasury = 0;
+
+        // Seize all remaining storage and military fuel of eliminated country
+        if (defCountry.economy && defCountry.economy.storage) {
+          Object.keys(defCountry.economy.storage).forEach(k => {
+            const qty = defCountry.economy.storage[k] || 0;
+            if (qty > 0) {
+              attCountry.economy.storage[k] = (attCountry.economy.storage[k] || 0) + qty;
+              defCountry.economy.storage[k] = 0;
+            }
+          });
+        }
+        if (defCountry.military && defCountry.military.fuelTokens > 0) {
+          attCountry.military.fuelTokens = (attCountry.military.fuelTokens || 0) + defCountry.military.fuelTokens;
+          defCountry.military.fuelTokens = 0;
+        }
+
         Object.values(this.hexMap).forEach(h => {
           if (h.owner === defCountryId) h.owner = attCountryId;
         });
@@ -1168,6 +1328,9 @@ class MegagameRoom {
       defCountryId,
       attSoldiers: initialAttSoldiers,
       defSoldiers: initialDefSoldiers,
+      defBoxesSoldiers,
+      baseDefense,
+      isMainRegion,
       attTechMultiplier,
       defTechMultiplier,
       isCapital: !!isCapital,
@@ -1177,7 +1340,8 @@ class MegagameRoom {
       defPower,
       survivingSoldiers,
       isCapitalConquered: isCapital && winner === attCountryId,
-      targetHexId: targetHex.id
+      targetHexId: targetHex.id,
+      lootedResource: winner === attCountryId ? lootedResource : null
     };
   }
 
@@ -1190,6 +1354,11 @@ class MegagameRoom {
           // If hex is captured by someone else, petal is locked!
           const isOccupiedByEnemy = hex.owner !== hex.resourceCountry;
           homeCountry.economy.petals[hex.resourceType].locked = isOccupiedByEnemy;
+          if (isOccupiedByEnemy) {
+            homeCountry.economy.petals[hex.resourceType].occupiedBy = hex.owner;
+          } else {
+            homeCountry.economy.petals[hex.resourceType].occupiedBy = null;
+          }
         }
       }
     });
@@ -1270,12 +1439,16 @@ class MegagameRoom {
     if (!country || country.isEliminated) {
       return { success: false, error: 'این کشور از بازی حذف شده است.' };
     }
-    if (country.treasury < 5000) {
-      return { success: false, error: 'برای باز کردن پازل به ۵۰۰۰ سکه نیاز دارید.' };
-    }
-    country.treasury -= 5000;
     country.puzzleUnlocked = true;
-    return { success: true, puzzle: country.currentPuzzle, treasury: country.treasury };
+    if (!country.currentPuzzle && country.techLevel <= 10) {
+      country.currentPuzzle = sanitizePuzzle(this.roomPuzzles[country.techLevel]);
+    }
+    return {
+      success: true,
+      puzzle: country.currentPuzzle,
+      treasury: country.treasury,
+      solvedPuzzles: country.solvedPuzzles || []
+    };
   }
 
   submitTechPuzzle(countryId, answer) {
@@ -1283,35 +1456,69 @@ class MegagameRoom {
     if (!country || country.isEliminated) {
       return { success: false, error: 'این کشور از بازی حذف شده است.' };
     }
-    if (country.treasury < 2000) {
-      return { success: false, error: 'ثبت پاسخ نیازمند ۲۰۰۰ سکه است.' };
+    if (country.techLevel > 10) {
+      return { success: false, error: 'تمامی ۱۰ سطح توسعه فناوری ملی تکمیل شده است!' };
     }
+    if (country.treasury < 2000) {
+      return { success: false, error: 'ثبت پاسخ نیازمند ۲٬۰۰۰ سکه از خزانه ملی است.' };
+    }
+    // Deduct 2000 coins for each attempt regardless of outcome
     country.treasury -= 2000;
 
-    const puzzle = country.currentPuzzle;
-    const isCorrect = String(answer).trim().toUpperCase() === String(puzzle.answer).trim().toUpperCase();
+    const fullPuzzle = this.roomPuzzles[country.techLevel];
+    if (!fullPuzzle) {
+      return { success: false, error: 'معمای این سطح در پایگاه داده یافت نشد.' };
+    }
+
+    const isCorrect = checkPuzzleAnswer(fullPuzzle, answer);
 
     if (isCorrect) {
-      country.techLevel += 1;
-      // Per PDF v4.2: +0.1 Tech Multiplier per puzzle solved
-      country.techMultiplier = Number((1.0 + (country.techLevel - 1) * 0.1).toFixed(1));
+      const solvedLevel = country.techLevel;
+      const solvedAnswer = fullPuzzle.answer;
 
-      country.currentPuzzle = generateTechPuzzle(country.techLevel);
-      country.puzzleUnlocked = false;
+      if (!country.solvedPuzzles) country.solvedPuzzles = [];
+      country.solvedPuzzles.push({
+        level: solvedLevel,
+        title: fullPuzzle.title,
+        answer: solvedAnswer,
+        solvedAt: new Date().toISOString()
+      });
+
+      country.techLevel += 1;
+      country.techMultiplier = this.calculateTechMultiplier(country.techLevel);
+
+      if (country.techLevel <= 10) {
+        country.currentPuzzle = sanitizePuzzle(this.roomPuzzles[country.techLevel]);
+      } else {
+        country.currentPuzzle = null;
+      }
+      country.puzzleUnlocked = true;
 
       return {
         success: true,
         isCorrect: true,
+        message: `پاسخ سطح ${solvedLevel} کاملاً صحیح بود! سطح فناوری به ${country.techLevel} ارتقا یافت.`,
         newLevel: country.techLevel,
         multiplier: country.techMultiplier,
-        treasury: country.treasury
+        toolPrice: this.getToolPrice(country.techLevel),
+        treasury: country.treasury,
+        solvedPuzzle: {
+          level: solvedLevel,
+          title: fullPuzzle.title,
+          answer: solvedAnswer
+        },
+        nextPuzzle: country.currentPuzzle,
+        solvedPuzzles: country.solvedPuzzles
       };
     } else {
       return {
         success: true,
         isCorrect: false,
-        message: 'پاسخ نادرست بود. دوباره تلاش کنید.',
-        treasury: country.treasury
+        message: 'پاسخ نادرست است! ۲٬۰۰۰ سکه از خزانه ملی کسر گردید. مراقب کدهای جعلی باشید.',
+        treasury: country.treasury,
+        techLevel: country.techLevel,
+        currentPuzzle: country.currentPuzzle,
+        solvedPuzzles: country.solvedPuzzles || []
       };
     }
   }
@@ -1379,7 +1586,7 @@ class MegagameRoom {
       }
     }
 
-    const validGoods = ['bread', 'building', 'clothes'];
+    const validGoods = ['bread', 'building', 'clothes', 'wheat', 'oven', 'brick', 'crane', 'cotton', 'sewing', 'fuel'];
     if (!validGoods.includes(goodType)) {
       return { success: false, error: 'نوع کالا نامعتبر است.' };
     }
@@ -1389,21 +1596,68 @@ class MegagameRoom {
 
     const type = tradeType === 'buy' ? 'buy' : 'sell';
 
+    const goodNamesFa = {
+      bread: 'نان',
+      building: 'ساختمان',
+      clothes: 'لباس',
+      wheat: 'گندم',
+      oven: 'کوره/تنور',
+      brick: 'آجر',
+      crane: 'جرثقیل',
+      cotton: 'پنبه',
+      sewing: 'چرخ خیاطی',
+      fuel: 'سوخت'
+    };
+
     if (type === 'buy') {
-      // Proposer wants to buy goods in exchange for coins
-      if (from.treasury < price) {
-        return { success: false, error: `سکه کافی در خزانه ندارید (موجودی: ${from.treasury.toLocaleString()}، نیاز: ${price.toLocaleString()}).` };
+      // Proposer wants to buy goods in exchange for coins (from treasury or econ budget)
+      if (from.treasury < price && (from.econBudget || 0) < price) {
+        return { 
+          success: false, 
+          error: `سکه کافی برای پیشنهاد خرید ندارید (موجودی خزانه: ${from.treasury.toLocaleString('fa-IR')}، بودجه: ${(from.econBudget || 0).toLocaleString('fa-IR')}، مبلغ مورد نیاز: ${price.toLocaleString('fa-IR')}).` 
+        };
       }
     } else {
-      // Proposer wants to sell goods from storage in exchange for coins
-      if ((from.economy.storage[goodType] || 0) < quantity) {
-        return { success: false, error: `موجودی ${goodType} در انبار شما کافی نیست.` };
+      // Proposer wants to sell goods
+      if (goodType === 'fuel') {
+        if ((from.military?.fuelTokens || 0) < quantity) {
+          return { success: false, error: `موجودی سوخت شما برای فروش کافی نیست (موجودی: ${from.military?.fuelTokens || 0}، درخواستی: ${quantity}).` };
+        }
+      } else {
+        const currentStock = from.economy?.storage?.[goodType] || 0;
+        if (currentStock < quantity) {
+          const recipes = {
+            bread: ['wheat', 'oven'],
+            building: ['brick', 'crane'],
+            clothes: ['cotton', 'sewing']
+          };
+          const recipe = recipes[goodType];
+          const p1 = from.economy?.petals?.[recipe?.[0]];
+          const p2 = from.economy?.petals?.[recipe?.[1]];
+          const isFacilityLocked = (p1 && p1.locked) || (p2 && p2.locked);
+
+          if (!isFacilityLocked && recipe && (from.economy?.storage?.[recipe[0]] || 0) >= (quantity - currentStock) && (from.economy?.storage?.[recipe[1]] || 0) >= (quantity - currentStock)) {
+            // Auto-craft needed units
+            const needed = quantity - currentStock;
+            from.economy.storage[recipe[0]] -= needed;
+            from.economy.storage[recipe[1]] -= needed;
+            from.economy.storage[goodType] = (from.economy.storage[goodType] || 0) + needed;
+          } else {
+            const goodFa = goodNamesFa[goodType] || goodType;
+            if (isFacilityLocked) {
+              return { success: false, error: `موجودی ${goodFa} کافی نیست و خط تولید آن به دلیل تصرف مخازن توسط دشمن قفل است.` };
+            }
+            return { success: false, error: `موجودی ${goodFa} در انبار شما کافی نیست (موجودی: ${currentStock}، درخواستی: ${quantity}).` };
+          }
+        }
       }
     }
 
     const trade = {
       id: `trade_${Date.now()}_${Math.random().toString(36).substr(2,4)}`,
       fromCountryId,
+      fromCountryName: from.name,
+      fromCountryColor: from.color,
       toCountryId: isBroadcast ? 'all' : toCountryId,
       tradeType: type,
       goodType,
@@ -1446,20 +1700,64 @@ class MegagameRoom {
     if (!buyer || !seller || buyer.isEliminated || seller.isEliminated) {
       return { success: false, error: 'یکی از طرفین معامله از بازی حذف شده است.' };
     }
-    if (buyer.treasury < trade.price) {
-      return { success: false, error: `خریدار (${buyerCountryId}) سکه کافی در خزانه برای پرداخت این معامله ندارد.` };
-    }
-    if ((seller.economy.storage[trade.goodType] || 0) < trade.quantity) {
-      return { success: false, error: `فروشنده (${sellerCountryId}) کالای کافی در انبار ندارد.` };
+
+    // Check buyer funds (treasury first, fallback to econBudget)
+    const buyerFunds = buyer.treasury >= trade.price ? 'treasury' : (buyer.econBudget >= trade.price ? 'econBudget' : null);
+    if (!buyerFunds) {
+      return { success: false, error: `خریدار (${buyer.name}) سکه کافی برای پرداخت این معامله ندارد.` };
     }
 
-    buyer.treasury -= trade.price;
-    seller.treasury += trade.price;
-    seller.economy.storage[trade.goodType] -= trade.quantity;
-    buyer.economy.storage[trade.goodType] = (buyer.economy.storage[trade.goodType] || 0) + trade.quantity;
+    // Check seller goods
+    if (trade.goodType === 'fuel') {
+      if ((seller.military?.fuelTokens || 0) < trade.quantity) {
+        return { success: false, error: `فروشنده (${seller.name}) سوخت کافی ندارد.` };
+      }
+      seller.military.fuelTokens -= trade.quantity;
+      if (!buyer.military) buyer.military = { fuelTokens: 0, armyBoxes: [] };
+      buyer.military.fuelTokens = (buyer.military.fuelTokens || 0) + trade.quantity;
+    } else {
+      // Material / Good
+      const sellerStock = seller.economy?.storage?.[trade.goodType] || 0;
+      if (sellerStock < trade.quantity) {
+        // Check auto-crafting if finished good
+        const recipes = {
+          bread: ['wheat', 'oven'],
+          building: ['brick', 'crane'],
+          clothes: ['cotton', 'sewing']
+        };
+        const recipe = recipes[trade.goodType];
+        const p1 = seller.economy?.petals?.[recipe?.[0]];
+        const p2 = seller.economy?.petals?.[recipe?.[1]];
+        const isFacilityLocked = (p1 && p1.locked) || (p2 && p2.locked);
+
+        if (!isFacilityLocked && recipe && (seller.economy?.storage?.[recipe[0]] || 0) >= (trade.quantity - sellerStock) && (seller.economy?.storage?.[recipe[1]] || 0) >= (trade.quantity - sellerStock)) {
+          const needed = trade.quantity - sellerStock;
+          seller.economy.storage[recipe[0]] -= needed;
+          seller.economy.storage[recipe[1]] -= needed;
+          seller.economy.storage[trade.goodType] = (seller.economy.storage[trade.goodType] || 0) + needed;
+        } else {
+          return { success: false, error: `فروشنده (${seller.name}) کالای کافی در انبار ندارد${isFacilityLocked ? ' و خط تولید آن توسط دشمن اشغال است' : ''}.` };
+        }
+      }
+
+      seller.economy.storage[trade.goodType] -= trade.quantity;
+      if (!buyer.economy) buyer.economy = { storage: {} };
+      buyer.economy.storage[trade.goodType] = (buyer.economy.storage[trade.goodType] || 0) + trade.quantity;
+    }
+
+    // Transfer payment to seller treasury
+    if (buyerFunds === 'treasury') {
+      buyer.treasury -= trade.price;
+    } else {
+      buyer.econBudget -= trade.price;
+    }
+    seller.treasury = (seller.treasury || 0) + trade.price;
+
     trade.status = 'accepted';
     trade.acceptedByCountryId = acceptingCountryId;
+    trade.acceptedByCountryName = sellerCountryId === acceptingCountryId ? seller.name : buyer.name;
     this.pendingTrades.splice(tradeIdx, 1);
+
     return { 
       success: true, 
       trade, 
@@ -1500,5 +1798,10 @@ module.exports = {
   MAP_BLUEPRINTS,
   getOddRNeighbors,
   hexDistance,
-  generateTechPuzzle
+  generateTechPuzzle,
+  generateRoomPuzzles,
+  sanitizePuzzle,
+  checkPuzzleAnswer,
+  getToolPrice,
+  calculateTechMultiplier
 };

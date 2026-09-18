@@ -2,7 +2,7 @@
 // Automated verification for Megagame V4
 
 const assert = require('assert');
-const { MegagameRoom, calculateTier } = require('../server/gameEngine');
+const { MegagameRoom, calculateTier, getToolPrice, calculateTechMultiplier } = require('../server/gameEngine');
 const { CommsRouter } = require('../server/commsRouter');
 
 console.log('--- شروع تست‌های خودکار موتور بازی استراتژی کلان (Megagame V4) ---');
@@ -68,28 +68,58 @@ assert.strictEqual(room.countries['red'].econBudget, 1000, 'Remaining budget sho
 assert.strictEqual(buyToolSuccess.toolsInventory, 13, 'Tools inventory should increase by 1 (12 + 1)');
 console.log('  ✓ خرید ابزار با نرخ ۵۰۰۰ سکه به ازای هر ابزار تأیید شد.');
 
-// 3. Test Army Reinforce Cost (1000 per soldier)
-console.log('3. تست هزینه شارژ ارتش در خط مقدم (۱۰۰۰ سکه به ازای هر سرباز):');
+// 3. Test Army Reinforce Cost (2000 per soldier)
+console.log('3. تست هزینه شارژ ارتش در خط مقدم (۲۰۰۰ سکه به ازای هر سرباز):');
 room.countries['red'].warBudget = 10000;
 const boxId = room.countries['red'].military.armyBoxes[0].id;
 const reinfRes = room.reinforceBox('red', boxId, 5);
 assert.strictEqual(reinfRes.success, true, 'Reinforce should succeed');
-assert.strictEqual(room.countries['red'].warBudget, 5000, 'Remaining war budget should be 5000 (10000 - 5*1000)');
-console.log('  ✓ هزینه شارژ ارتش با نرخ ۱۰۰۰ سکه به ازای هر سرباز تأیید شد.');
+assert.strictEqual(reinfRes.cost, 10000, 'Cost for 5 soldiers should be 10000 coins (5 * 2000)');
+assert.strictEqual(room.countries['red'].warBudget, 0, 'Remaining war budget should be 0 (10000 - 5*2000)');
 
-// 4. Test Tech Puzzle & Circuit Answer
-console.log('4. تست حل پازل‌های فناوری و پیشرفت ضریب ارتش:');
+// Test insufficient budget for 1 additional soldier (needs 2000, has 0)
+const failReinf = room.reinforceBox('red', boxId, 1);
+assert.strictEqual(failReinf.success, false, 'Should fail if budget < 2000');
+console.log('  ✓ هزینه شارژ ارتش با نرخ ۲۰۰۰ سکه به ازای هر سرباز و بررسی سقف بودجه تأیید شد.');
+
+// 4. Test Tech Puzzle & Circuit Answer & Tech Progression for Economy and War
+console.log('4. تست حل پازل‌های فناوری و پیشرفت ضریب ارتش و تخفیف ابزار:');
+assert.strictEqual(getToolPrice(1), 5000, 'L1 tool price must be 5000');
+assert.strictEqual(getToolPrice(2), 4000, 'L2 tool price must be 4000 (-1000)');
+assert.strictEqual(getToolPrice(4), 4000, 'L4 tool price must be 4000');
+assert.strictEqual(getToolPrice(5), 3000, 'L5 tool price must be 3000 (-1000)');
+assert.strictEqual(getToolPrice(7), 2000, 'L7 tool price must be 2000 (-1000)');
+assert.strictEqual(getToolPrice(10), 1000, 'L10 tool price must be 1000 (-1000)');
+
+assert.strictEqual(calculateTechMultiplier(1), 1.0, 'L1 tech multiplier must be 1.0');
+assert.strictEqual(calculateTechMultiplier(2), 1.0, 'L2 tech multiplier must be 1.0');
+assert.strictEqual(calculateTechMultiplier(3), 1.5, 'L3 tech multiplier must be 1.5 (+0.5)');
+assert.strictEqual(calculateTechMultiplier(4), 1.5, 'L4 tech multiplier must be 1.5');
+assert.strictEqual(calculateTechMultiplier(5), 2.0, 'L5 tech multiplier must be 2.0 (+0.5)');
+assert.strictEqual(calculateTechMultiplier(7), 2.5, 'L7 tech multiplier must be 2.5 (+0.5)');
+assert.strictEqual(calculateTechMultiplier(10), 3.0, 'L10 tech multiplier must be 3.0 (+0.5)');
+
 room.countries['red'].treasury = 20000;
-room.countries['red'].techLevel = 3; // next will be level 4 (circuit)
-room.countries['red'].currentPuzzle = require('../server/gameEngine').generateTechPuzzle ? require('../server/gameEngine').generateTechPuzzle(4) : null;
-// submit answer for level 3 puzzle
-const puzAns = room.countries['red'].currentPuzzle.answer;
-assert.ok(puzAns, 'Circuit puzzle must have a valid answer');
-const submitRes = room.submitTechPuzzle('red', puzAns);
+room.countries['red'].techLevel = 3;
+// Wrong answer test (-2000 coins penalty)
+const wrongRes = room.submitTechPuzzle('red', 'WRONG_ANSWER_123');
+assert.strictEqual(wrongRes.success, true);
+assert.strictEqual(wrongRes.isCorrect, false);
+assert.strictEqual(room.countries['red'].treasury, 18000, '2000 coins penalty for wrong answer');
+assert.strictEqual(room.countries['red'].techLevel, 3, 'Tech level should remain 3 on wrong answer');
+
+// Correct answer test (using room's seeded level 3 puzzle)
+const level3Answer = room.roomPuzzles[3].answer;
+assert.ok(level3Answer, 'Level 3 puzzle must have an answer in roomPuzzles');
+const submitRes = room.submitTechPuzzle('red', level3Answer);
 assert.strictEqual(submitRes.success, true);
 assert.strictEqual(submitRes.isCorrect, true, 'Answer must be accepted');
-assert.strictEqual(submitRes.multiplier, 1.3, 'Tech multiplier for level 4 must be 1.3 (1.0 + 3*0.1)');
-console.log(`  ✓ پازل مدار با پاسخ "${puzAns}" حل شد و ضریب ارتش به ${submitRes.multiplier} ارتقا یافت.`);
+assert.strictEqual(room.countries['red'].treasury, 16000, '2000 coins deducted for attempt');
+assert.strictEqual(room.countries['red'].techLevel, 4, 'Tech level should advance to 4');
+assert.strictEqual(submitRes.multiplier, 1.5, 'Tech multiplier for level 4 must be 1.5 (Level >= 3)');
+assert.strictEqual(submitRes.toolPrice, 4000, 'Tool price for level 4 must be 4000 (Level >= 2)');
+assert.ok(room.countries['red'].solvedPuzzles.some(p => p.level === 3 && p.answer === level3Answer), 'Solved puzzle must be archived');
+console.log(`  ✓ معمای ۱۰ سطحی با پاسخ "${level3Answer}" حل شد، ۲۰۰۰ سکه کسر شد، در بایگانی ثبت گردید، ضریب ارتش به ${submitRes.multiplier} و قیمت ابزار به ${submitRes.toolPrice} سکه رسید.`);
 
 // 5. Test Night Resource Hex Income
 console.log('5. تست درآمد هگزهای منابع در فاز شب:');
@@ -148,7 +178,12 @@ if (neutralToExpand) {
   assert.strictEqual(expandRes.success, true, 'Expansion with fuel should succeed');
   assert.strictEqual(redCountry.military.fuelTokens, 1, 'Fuel token must be decremented by 1');
   assert.strictEqual(room.hexMap[neutralToExpand.id].owner, 'red', 'Hex owner must be red');
-  console.log('  ✓ گسترش قلمرو با ۱ سوخت و بدون جابه‌جایی ارتش با موفقیت تأیید شد.');
+
+  // Test second expansion in same turn is blocked
+  const secondExpandRes = room.expandTerritory('red', neutralToExpand.id);
+  assert.strictEqual(secondExpandRes.success, false, 'Second expansion in same turn must fail');
+  assert.strictEqual(secondExpandRes.error, 'در هر نوبت فقط می‌توانید ۱ زمین را با سوخت گسترش دهید.');
+  console.log('  ✓ گسترش قلمرو با ۱ سوخت و محدودیت ۱ زمین در هر نوبت با موفقیت تأیید شد.');
 }
 
 // 9. Test Ministers Transferring Budget to National Treasury

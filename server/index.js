@@ -79,11 +79,15 @@ setInterval(() => {
         if (room.phase === 'night') {
           io.to(code).emit('phase_changed', { phase: 'night', round: room.round });
         } else {
+          const nextActive = room.activeCountryOrder[room.noonActiveCountryIndex];
           io.to(code).emit('noon_turn_changed', {
             cycle: room.noonCycle,
-            activeCountry: room.activeCountryOrder[room.noonActiveCountryIndex],
+            activeCountry: nextActive,
             noonActiveCountryIndex: room.noonActiveCountryIndex
           });
+          if (nextActive && room.countries[nextActive]) {
+            io.to(code).emit('country_updated', { countryId: nextActive, country: room.countries[nextActive] });
+          }
         }
       } else if (room.phase === 'night') {
         room.nextRoundOrEnd();
@@ -373,7 +377,13 @@ io.on('connection', socket => {
     if (!currentRoomCode || !rooms[currentRoomCode]) return;
     const { room } = rooms[currentRoomCode];
     const player = room.findPlayer(socket.id);
-    if (!player || player.countryId !== fromCountryId || (player.role !== 'economy' && player.role !== 'president')) {
+    if (!player || player.countryId !== fromCountryId) {
+      return callback && callback({ success: false, error: 'دسترسی غیرمجاز.' });
+    }
+    const country = room.countries[fromCountryId];
+    const isEconOrPres = player.role === 'economy' || player.role === 'president';
+    const isSolo = country && !country.players.economy && !country.players.president;
+    if (!isEconOrPres && !isSolo) {
       return callback && callback({ success: false, error: 'تنها وزیر اقتصاد یا رئیس‌جمهور مجاز به ثبت معامله هستند.' });
     }
     const res = room.proposeTrade(fromCountryId, toCountryId, goodType, quantity, price, tradeType);
@@ -387,7 +397,13 @@ io.on('connection', socket => {
     if (!currentRoomCode || !rooms[currentRoomCode]) return;
     const { room } = rooms[currentRoomCode];
     const player = room.findPlayer(socket.id);
-    if (!player || player.countryId !== acceptingCountryId || (player.role !== 'economy' && player.role !== 'president')) {
+    if (!player || player.countryId !== acceptingCountryId) {
+      return callback && callback({ success: false, error: 'دسترسی غیرمجاز.' });
+    }
+    const country = room.countries[acceptingCountryId];
+    const isEconOrPres = player.role === 'economy' || player.role === 'president';
+    const isSolo = country && !country.players.economy && !country.players.president;
+    if (!isEconOrPres && !isSolo) {
       return callback && callback({ success: false, error: 'تنها وزیر اقتصاد یا رئیس‌جمهور مجاز به قبول معامله هستند.' });
     }
     const res = room.acceptTrade(tradeId, acceptingCountryId);
@@ -403,8 +419,8 @@ io.on('connection', socket => {
     if (!currentRoomCode || !rooms[currentRoomCode]) return;
     const { room } = rooms[currentRoomCode];
     const player = room.findPlayer(socket.id);
-    if (!player || player.countryId !== rejectingCountryId || (player.role !== 'economy' && player.role !== 'president')) {
-      return callback && callback({ success: false, error: 'تنها وزیر اقتصاد یا رئیس‌جمهور مجاز به رد معامله هستند.' });
+    if (!player || player.countryId !== rejectingCountryId) {
+      return callback && callback({ success: false, error: 'دسترسی غیرمجاز.' });
     }
     const res = room.rejectTrade(tradeId, rejectingCountryId);
     if (callback) callback(res);
@@ -529,11 +545,15 @@ io.on('connection', socket => {
       if (room.phase === 'night') {
         io.to(currentRoomCode).emit('phase_changed', { phase: 'night', round: room.round });
       } else {
+        const nextActive = room.activeCountryOrder[room.noonActiveCountryIndex];
         io.to(currentRoomCode).emit('noon_turn_changed', {
           cycle: room.noonCycle,
-          activeCountry: room.activeCountryOrder[room.noonActiveCountryIndex],
+          activeCountry: nextActive,
           noonActiveCountryIndex: room.noonActiveCountryIndex
         });
+        if (nextActive && room.countries[nextActive]) {
+          io.to(currentRoomCode).emit('country_updated', { countryId: nextActive, country: room.countries[nextActive] });
+        }
       }
     } else {
       callback({ success: false, error: 'اکنون نوبت شما نیست.' });
@@ -728,18 +748,29 @@ io.on('connection', socket => {
     socket.activeVoiceChannel = channelId;
   });
 
+  const directLineNotifyCooldown = new Map();
+
   function notifyDirectLineConnection(rCode, channelId, clientSocket) {
     if (!rCode || !channelId || !rooms[rCode]) return;
     const { room, comms } = rooms[rCode];
     const caller = room.findPlayer(clientSocket.id);
     if (!caller || !caller.countryId || !caller.role) return;
 
+    // Debounce: prevent duplicate notifications within 10 seconds for the same caller and channel
+    const cooldownKey = `${rCode}_${clientSocket.id}_${channelId}`;
+    const lastTime = directLineNotifyCooldown.get(cooldownKey) || 0;
+    if (Date.now() - lastTime < 10000) {
+      return;
+    }
+
     let targetCountryIds = [];
     let targetRoles = [];
     let lineType = 'خط مستقیم';
 
+    // 1. Bilateral Secret Lines: Only between the TWO specific countries and the SAME role
     if (channelId.startsWith('pres_secret_')) {
       const parts = channelId.replace('pres_secret_', '').split('_');
+      if (caller.role !== 'president' || !parts.includes(caller.countryId) || parts.length !== 2) return;
       const otherCountryId = parts.find(cid => cid !== caller.countryId);
       if (otherCountryId) {
         targetCountryIds.push(otherCountryId);
@@ -748,6 +779,7 @@ io.on('connection', socket => {
       }
     } else if (channelId.startsWith('war_secret_')) {
       const parts = channelId.replace('war_secret_', '').split('_');
+      if (caller.role !== 'war' || !parts.includes(caller.countryId) || parts.length !== 2) return;
       const otherCountryId = parts.find(cid => cid !== caller.countryId);
       if (otherCountryId) {
         targetCountryIds.push(otherCountryId);
@@ -756,6 +788,7 @@ io.on('connection', socket => {
       }
     } else if (channelId.startsWith('trade_secret_')) {
       const parts = channelId.replace('trade_secret_', '').split('_');
+      if (caller.role !== 'economy' || !parts.includes(caller.countryId) || parts.length !== 2) return;
       const otherCountryId = parts.find(cid => cid !== caller.countryId);
       if (otherCountryId) {
         targetCountryIds.push(otherCountryId);
@@ -764,19 +797,28 @@ io.on('connection', socket => {
       }
     } else if (channelId.startsWith('internal_')) {
       const cId = channelId.replace('internal_', '');
-      if (cId === caller.countryId) {
+      if (cId !== caller.countryId) return;
+      // If a minister connects, the ONLY recipient is their country's president!
+      if (caller.role === 'war' || caller.role === 'economy') {
         targetCountryIds.push(cId);
-        if (caller.role === 'president') {
-          targetRoles.push('war', 'economy');
-          lineType = 'خط داخلی دفتر ریاست‌جمهوری';
-        } else {
-          targetRoles.push('president');
-          lineType = 'خط مستقیم گزارش به رئیس‌جمهور';
-        }
+        targetRoles.push('president');
+        lineType = 'خط مستقیم گزارش به رئیس‌جمهور';
+      } else if (caller.role === 'president') {
+        // If president connects, notify only the ministers of their own country
+        targetCountryIds.push(cId);
+        targetRoles.push('war', 'economy');
+        lineType = 'خط داخلی دفتر ریاست‌جمهوری';
+      } else {
+        return;
       }
+    } else {
+      // General summits or group channels: not a 1-on-1 call, do not trigger direct call alerts!
+      return;
     }
 
     if (targetCountryIds.length === 0) return;
+
+    directLineNotifyCooldown.set(cooldownKey, Date.now());
 
     const callerCountry = room.countries[caller.countryId];
     const roleLabels = { president: 'رئیس‌جمهور', war: 'وزیر جنگ', economy: 'وزیر اقتصاد' };
@@ -793,6 +835,7 @@ io.on('connection', socket => {
       timestamp: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })
     };
 
+    const targetSockets = [];
     targetCountryIds.forEach(tCid => {
       const tCountry = room.countries[tCid];
       if (!tCountry || tCountry.isEliminated) return;
@@ -802,17 +845,22 @@ io.on('connection', socket => {
         if (targetPlayer && targetPlayer.socketId && targetPlayer.socketId !== clientSocket.id) {
           const targetSocket = io.sockets.sockets.get(targetPlayer.socketId);
           if (targetSocket) {
+            targetSockets.push(targetSocket);
+            // Strictly notify ONLY the direct counterpart on the other side:
             targetSocket.emit('direct_line_incoming', payload);
           }
         }
       });
     });
 
-    // Record system message in chat
-    const sysText = `📞 ${payload.callerRoleName} ${caller.username} (${payload.callerCountryName}) به خط مستقیم متصل شد.`;
-    const sysMsg = comms.postMessage(caller.countryId, caller.role, 'مرکز ارتباطات', channelId, sysText);
-    if (sysMsg.success) {
-      io.to(rCode).emit('new_message', sysMsg.message);
+    // Record system message in chat - ONLY for participants of this call, NEVER broadcast to room!
+    if (targetSockets.length > 0) {
+      const sysText = `📞 ${payload.callerRoleName} ${caller.username} (${payload.callerCountryName}) به خط مستقیم متصل شد.`;
+      const sysMsg = comms.postMessage(caller.countryId, caller.role, 'مرکز ارتباطات', channelId, sysText);
+      if (sysMsg.success) {
+        clientSocket.emit('new_message', sysMsg.message);
+        targetSockets.forEach(ts => ts.emit('new_message', sysMsg.message));
+      }
     }
   }
 
@@ -827,9 +875,6 @@ io.on('connection', socket => {
     socket.activeVoiceChannel = channelId;
     const voiceRoom = `voice_${rCode}_${channelId}`;
     socket.join(voiceRoom);
-    if (channelId.startsWith('pres_secret_') || channelId.startsWith('war_secret_') || channelId.startsWith('trade_secret_') || channelId.startsWith('internal_')) {
-      notifyDirectLineConnection(rCode, channelId, socket);
-    }
   });
 
   socket.on('leave_voice', ({ roomCode, channelId }) => {

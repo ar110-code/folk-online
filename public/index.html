@@ -1,0 +1,1243 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>مگاگیم استراتژی کلان (Megagame V4)</title>
+  <link rel="stylesheet" href="/css/style.css?v=6.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;800;900&display=swap" rel="stylesheet">
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <!-- Toast Notification Container -->
+  <div id="toast-container"></div>
+
+  <!-- Direct Line Incoming Call Alert Container -->
+  <div id="direct-line-alert-container" class="direct-line-alert-container hidden"></div>
+
+  <!-- Screen 1: Lobby -->
+  <div id="lobby-screen" class="screen active">
+    <div class="lobby-container">
+      <header class="lobby-header">
+        <div class="logo-badge">MEGAGAME V4</div>
+        <h1 class="logo-text">MEGAGAME V4</h1>
+        <p class="subtitle">دیپلماسی بین‌الملل، نبرد استراتژیک هگز و چرخه کلان تولید و تجارت</p>
+      </header>
+
+      <div id="lobby-auth" class="card">
+        <h3>ورود به اتاق بازی</h3>
+        <div class="input-group">
+          <label>نام فرمانده / بازیکن:</label>
+          <input type="text" id="player-name" placeholder="مثال: کوروش، سهراب..." value="بازیکن ۱">
+        </div>
+        <div class="lobby-actions">
+          <button id="btn-create-room" class="btn btn-primary">ایجاد اتاق جدید (میزبان)</button>
+          <div class="divider">یا</div>
+          <div class="join-group">
+            <input type="text" id="room-code-input" placeholder="کد ۶ رقمی اتاق" maxlength="6">
+            <button id="btn-join-room" class="btn btn-secondary">پیوستن به اتاق</button>
+          </div>
+        </div>
+
+        <!-- Active Rooms Section -->
+        <div class="active-rooms-section" style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h4 style="font-size: 1rem; color: #60a5fa; display: flex; align-items: center; gap: 8px;">
+              <span>🌐 اتاق‌های فعال (در انتظار بازیکن):</span>
+            </h4>
+            <button id="btn-refresh-rooms" class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem;">تازه‌سازی 🔄</button>
+          </div>
+          <div id="active-rooms-list" style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="color: var(--text-muted); font-size: 0.85rem; text-align: center; padding: 10px;">در حال جستجوی اتاق‌های فعال...</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="lobby-room" class="card hidden">
+        <div class="room-topbar" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+          <div class="room-info">
+            کد اتاق شما: <span id="display-room-code" class="code-badge">------</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button id="btn-start-game" class="btn btn-success hidden">شروع بازی (مخصوص میزبان)</button>
+            <button id="btn-leave-lobby-room" class="btn btn-secondary" style="padding: 6px 14px; font-size: 0.85rem;">خروج از اتاق 🚪</button>
+          </div>
+        </div>
+
+        <p class="instruction">یک کشور و جایگاه نقش خود را انتخاب کنید (حداقل ۳ کشور باید دارای بازیکن باشند):</p>
+
+        <div id="countries-grid" class="countries-grid">
+          <!-- Dynamically generated country cards -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Screen 2: Game Dashboard -->
+  <div id="game-screen" class="screen">
+    <!-- Top Game Status Bar -->
+    <header class="game-topbar">
+      <div class="game-meta">
+        <div class="meta-item">
+          <span class="meta-label">روز / راند:</span>
+          <span id="display-round" class="meta-value highlight">۱ از ۸</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">فاز جاری:</span>
+          <span id="display-phase" class="meta-badge phase-morning">صبح (برنامه‌ریزی)</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">زمان باقیمانده:</span>
+          <span id="display-timer" class="timer-badge">۰۲:۰۰</span>
+        </div>
+        <div id="noon-indicator" class="meta-item hidden">
+          <span class="meta-label">دور فاز ظهر:</span>
+          <span id="display-noon-cycle" class="meta-value">۱ از ۵</span>
+          <span id="display-active-turn" class="turn-badge">نوبت: --</span>
+        </div>
+      </div>
+
+      <div class="player-meta">
+        <!-- National Mini-HUD (Feature 7) -->
+        <div id="national-mini-hud" class="national-mini-hud" title="شاخص‌های زنده و حیاتی ۳ حوزه کشور در یک نگاه">
+          <div class="hud-item" id="hud-mil-stat" title="تعداد ارتش‌های فعال کشور در خطوط مقدم">
+            <span class="hud-icon">⚔️</span>
+            <span class="hud-label">نظامی:</span>
+            <strong id="hud-val-armies" class="hud-val">۰ ارتش</strong>
+          </div>
+          <div class="hud-item" id="hud-econ-stat" title="مجموع کالاهای نهایی تولیدشده در انبار">
+            <span class="hud-icon">🍞</span>
+            <span class="hud-label">کالاها:</span>
+            <strong id="hud-val-goods" class="hud-val">۰ کالا</strong>
+          </div>
+          <div class="hud-item" id="hud-tech-stat" title="ضریب ارتقای فناوری تسلیحاتی">
+            <span class="hud-icon">🔬</span>
+            <span class="hud-label">فناوری:</span>
+            <strong id="hud-val-tech" class="hud-val">۱.۰×</strong>
+          </div>
+        </div>
+
+        <div class="player-info-card">
+          <span id="my-country-badge" class="country-pill">کشور: --</span>
+          <span id="my-role-badge" class="role-pill">نقش: --</span>
+          <span class="treasury-pill"><span id="my-treasury-label">خزانه:</span> <strong id="my-treasury">۰</strong> سکه</span>
+          <button id="btn-toggle-comms" class="btn btn-secondary btn-comms-toggle" style="padding: 4px 10px; font-size: 0.8rem;" title="مخفی‌سازی / نمایش سایدبار ارتباطات (کلید C)">
+            💬 <span id="comms-toggle-text">پنل گفتگو</span>
+            <span id="comms-unread-dot" class="unread-dot hidden"></span>
+          </button>
+          <button id="btn-leave-game" class="btn btn-secondary" style="padding: 4px 12px; font-size: 0.8rem;">خروج 🚪</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Dynamic Layout -->
+    <main class="game-layout">
+      <!-- Left / Center: Role Workspace -->
+      <section class="workspace">
+        
+        <!-- President Multi-Board Navigator -->
+        <div id="president-nav" class="president-nav hidden">
+          <button id="pnav-pres" class="pnav-btn active" onclick="switchPresidentView('president')">🏛️ کاخ ریاست‌جمهوری و فناوری</button>
+          <button id="pnav-war" class="pnav-btn" onclick="switchPresidentView('war')">🗺️ نظارت بر میز جنگ (نقشه هگز)</button>
+          <button id="pnav-econ" class="pnav-btn" onclick="switchPresidentView('economy')">📈 رصد چرخه اقتصاد و بورس</button>
+        </div>
+        
+        <!-- Role: Minister of Economy -->
+        <div id="view-economy" class="role-view hidden econ-market-view">
+          <div class="view-header econ-view-header">
+            <div class="econ-header-main">
+              <span class="econ-market-stamp">FINANCIAL TICKER // NATIONAL TREASURY & COMMERCE</span>
+              <h2>📈 وزارت امور اقتصادی، بورس کالا و بازرگانی ملی</h2>
+            </div>
+            <div class="econ-stats">
+              <span class="stat-badge econ-budget-badge" style="border-color: #10b981; color: #86efac; display: inline-flex; align-items: center; gap: 8px;">
+                <span>💰 بودجه وزارت اقتصاد: <strong id="econ-budget-display">۵٬۰۰۰</strong> سکه</span>
+                <button id="btn-req-budget-econ" class="btn btn-warning btn-xs btn-quick-req-budget" title="ارسال درخواست واریز بودجه اضطراری به رئیس‌جمهور">🔔 درخواست بودجه</button>
+                <button id="btn-return-budget-econ" class="btn btn-secondary btn-xs btn-quick-return-budget" title="انتقال مازاد بودجه اقتصاد به خزانه ملی">🏛️ انتقال به خزانه</button>
+              </span>
+              <span class="stat-badge econ-tools-badge">🛠️ توکن ابزار: <strong id="econ-tools-inv">۰</strong></span>
+              <span class="stat-badge econ-pop-badge">👥 توکن جمعیت: <strong id="econ-pop-inv">۰</strong></span>
+              <span class="stat-badge warning econ-tax-badge">⚠️ مالیات معوقه: <strong id="econ-unpaid-taxes">۰</strong></span>
+            </div>
+          </div>
+
+          <!-- The 6-Petal Geometric Flower Board (Always on top) -->
+          <div class="flower-board-container" id="econ-flower-board-container" style="position: relative;">
+            <!-- Theater Mode Button for Flower Board -->
+            <div class="flower-board-toolbar" style="position: absolute; top: 14px; right: 14px; z-index: 10;">
+              <button id="btn-theater-econ" class="btn btn-secondary btn-theater-toggle" style="padding: 4px 10px; font-size: 0.8rem;" title="حالت تمام‌صفحه و متمرکز (Esc)">⛶ نمای متمرکز</button>
+            </div>
+            <button class="btn-exit-theater hidden" onclick="window.toggleTheaterMode('econ-flower-board-container')">❌ خروج از نمای متمرکز (Esc)</button>
+            
+            <!-- Top-Left Mini Storage HUD for Economy (Visible when bottom dashboard is hidden) -->
+            <div class="econ-mini-storage-hud" id="econ-mini-storage-hud">
+              <span style="font-size: 0.78rem; color: #94a3b8; font-weight: bold;">🏪 موجودی انبار:</span>
+              <span class="mini-prod-pill">🍞 <strong id="quick-storage-bread">۰</strong></span>
+              <span class="mini-prod-pill">🏛️ <strong id="quick-storage-building">۰</strong></span>
+              <span class="mini-prod-pill">👔 <strong id="quick-storage-clothes">۰</strong></span>
+            </div>
+
+            <!-- Essential Floating Quick-Actions Bar for Economy (Craft & Sell to Market) -->
+            <div class="map-floating-bar econ-floating-bar" id="econ-quick-floating-bar">
+              <div class="floating-group">
+                <span class="floating-group-title" style="color: #38bdf8;">🛠️ تولید:</span>
+                <button type="button" class="btn btn-secondary btn-xs" id="btn-quick-craft-bread" title="ساخت ۱ نان (۱ گندم + ۱ کوره)">🍞 ساخت نان</button>
+                <button type="button" class="btn btn-secondary btn-xs" id="btn-quick-craft-building" title="ساخت ۱ ساختمان (۱ آجر + ۱ جرثقیل)">🏛️ ساخت ساختمان</button>
+                <button type="button" class="btn btn-secondary btn-xs" id="btn-quick-craft-clothes" title="ساخت ۱ لباس (۱ پنبه + ۱ چرخ خیاطی)">👔 ساخت لباس</button>
+              </div>
+              <div class="floating-group">
+                <span class="floating-group-title" style="color: #fbbf24;">💰 فروش:</span>
+                <button type="button" class="btn btn-success btn-xs" id="btn-quick-sell-bread" title="فروش ۱ نان به بازار جهانی (+۵٬۰۰۰ سکه)">+۵K 🍞 فروش</button>
+                <button type="button" class="btn btn-success btn-xs" id="btn-quick-sell-building" title="فروش ۱ ساختمان به بازار جهانی (+۵٬۰۰۰ سکه)">+۵K 🏛️ فروش</button>
+                <button type="button" class="btn btn-success btn-xs" id="btn-quick-sell-clothes" title="فروش ۱ لباس به بازار جهانی (+۵٬۰۰۰ سکه)">+۵K 👔 فروش</button>
+              </div>
+            </div>
+
+            <svg id="flower-svg" viewBox="-350 -350 700 700" class="flower-svg">
+              <!-- Rendered via JS -->
+            </svg>
+
+            <div class="flower-legend">
+              <div class="legend-item"><span class="color-box tool-color"></span> سمت چپ: ابزار (Tools)</div>
+              <div class="legend-item"><span class="color-box pop-color"></span> سمت راست: جمعیت (Pop)</div>
+              <div class="legend-rule">فرمول: طبقه ابزار × طبقه جمعیت = میزان تولید</div>
+            </div>
+
+            <!-- Quick action bar directly beneath the flower board -->
+            <div class="econ-actions" style="margin-top: 16px;">
+              <button id="btn-buy-tool" class="btn btn-primary">خرید ۱ ابزار دائمی (۵۰۰۰ سکه)</button>
+              <button id="btn-harvest-products" class="btn btn-warning">📥 برداشت محصولات (ظهر)</button>
+            </div>
+          </div>
+
+          <!-- Dashboard Controls Section (Collapsible/Hideable) -->
+          <div class="dashboard-controls-wrapper" id="econ-controls-wrapper">
+            <div class="dashboard-dock-bar">
+              <button type="button" class="btn-toggle-dashboard" id="btn-toggle-dashboard-econ" onclick="window.toggleBottomDashboard('econ')">
+                <span class="dock-icon">🎛️</span>
+                <span class="dock-label">پنل ابزارها، انبار و تجارت</span>
+                <span class="dock-status-hint">(کلیک یا کلید D برای مخفی‌سازی)</span>
+                <span class="dock-arrow">▾</span>
+              </button>
+            </div>
+            <div class="dashboard-controls-body" id="econ-controls-body">
+              <!-- Economy Dashboard Tab Bar for Remaining Sections -->
+              <div class="dashboard-tab-bar econ-tab-bar">
+                <button class="dashboard-tab-btn active" data-tab-group="econ" data-tab-target="econ-tab-market">📦 انبار، ساخت و فروش کالا</button>
+                <button class="dashboard-tab-btn" data-tab-group="econ" data-tab-target="econ-tab-trade">🤝 تجارت خارجی و انتقال بودجه</button>
+              </div>
+
+          <!-- Tab 1: Storage, Crafting & Global Market -->
+          <div id="econ-tab-market" class="dash-tab-content active" data-tab-group="econ">
+            <div class="econ-deck card">
+              <!-- Individual Resource Inventory (Collapsible) -->
+              <div id="card-raw-materials" class="collapsible-card" style="margin-bottom: 14px;">
+                <div class="collapsible-header" onclick="window.toggleCardCollapse('card-raw-materials')">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="collapse-icon">📦</span>
+                    <strong style="font-size: 0.95rem; color: #60a5fa;">موجودی منابع تولیدی (مواد خام انبار)</strong>
+                  </div>
+                  <span class="collapse-arrow">▾</span>
+                </div>
+                <div class="collapsible-body" style="margin-top: 10px;">
+                  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                    <div class="product-box" style="flex-direction: column; gap: 4px; padding: 10px;">
+                      <span class="product-icon">🌾</span>
+                      <span style="font-size: 0.8rem; color: #94a3b8;">گندم</span>
+                      <strong id="storage-wheat" style="color: #f1f5f9; font-size: 1.1rem;">۰</strong>
+                    </div>
+                    <div class="product-box" style="flex-direction: column; gap: 4px; padding: 10px;">
+                      <span class="product-icon">🔥</span>
+                      <span style="font-size: 0.8rem; color: #94a3b8;">کوره</span>
+                      <strong id="storage-oven" style="color: #f1f5f9; font-size: 1.1rem;">۰</strong>
+                    </div>
+                    <div class="product-box" style="flex-direction: column; gap: 4px; padding: 10px;">
+                      <span class="product-icon">🧱</span>
+                      <span style="font-size: 0.8rem; color: #94a3b8;">آجر</span>
+                      <strong id="storage-brick" style="color: #f1f5f9; font-size: 1.1rem;">۰</strong>
+                    </div>
+                    <div class="product-box" style="flex-direction: column; gap: 4px; padding: 10px;">
+                      <span class="product-icon">🏗️</span>
+                      <span style="font-size: 0.8rem; color: #94a3b8;">جرثقیل</span>
+                      <strong id="storage-crane" style="color: #f1f5f9; font-size: 1.1rem;">۰</strong>
+                    </div>
+                    <div class="product-box" style="flex-direction: column; gap: 4px; padding: 10px;">
+                      <span class="product-icon">☁️</span>
+                      <span style="font-size: 0.8rem; color: #94a3b8;">پنبه</span>
+                      <strong id="storage-cotton" style="color: #f1f5f9; font-size: 1.1rem;">۰</strong>
+                    </div>
+                    <div class="product-box" style="flex-direction: column; gap: 4px; padding: 10px;">
+                      <span class="product-icon">🧵</span>
+                      <span style="font-size: 0.8rem; color: #94a3b8;">چرخ خیاطی</span>
+                      <strong id="storage-sewing" style="color: #f1f5f9; font-size: 1.1rem;">۰</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Finished Goods Inventory -->
+              <div style="border-top: 1px solid var(--border-color); padding-top: 14px; margin-bottom: 14px;">
+                <strong style="font-size: 0.95rem; color: #34d399; display: block; margin-bottom: 8px;">🏪 کالاهای نهایی آماده فروش و مالیات:</strong>
+                <div class="storage-display" style="gap: 16px;">
+                  <div class="product-box" style="flex: 1; justify-content: center; padding: 10px;">
+                    <span class="product-icon">🍞</span>
+                    <span class="product-name">نان:</span>
+                    <strong id="storage-bread" style="font-size: 1.1rem;">۰</strong>
+                  </div>
+                  <div class="product-box" style="flex: 1; justify-content: center; padding: 10px;">
+                    <span class="product-icon">🏛️</span>
+                    <span class="product-name">ساختمان:</span>
+                    <strong id="storage-building" style="font-size: 1.1rem;">۰</strong>
+                  </div>
+                  <div class="product-box" style="flex: 1; justify-content: center; padding: 10px;">
+                    <span class="product-icon">👔</span>
+                    <span class="product-name">لباس:</span>
+                    <strong id="storage-clothes" style="font-size: 1.1rem;">۰</strong>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Craft & Sell Section -->
+              <div style="border-top: 1px solid var(--border-color); padding-top: 14px;">
+                <strong style="font-size: 0.9rem; color: #38bdf8; display: block; margin-bottom: 8px;">🛠️ ۱. تولید کالاهای نهایی برای انبار (مالیات شب و تجارت):</strong>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px;">
+                  <button id="btn-craft-bread" class="btn btn-secondary" style="flex: 1; min-width: 140px; border-color: #38bdf8;">
+                    🍞 ساخت نان<br><small>(۱ گندم + ۱ کوره)</small>
+                  </button>
+                  <button id="btn-craft-building" class="btn btn-secondary" style="flex: 1; min-width: 140px; border-color: #38bdf8;">
+                    🏛️ ساخت ساختمان<br><small>(۱ آجر + ۱ جرثقیل)</small>
+                  </button>
+                  <button id="btn-craft-clothes" class="btn btn-secondary" style="flex: 1; min-width: 140px; border-color: #38bdf8;">
+                    👔 ساخت لباس<br><small>(۱ پنبه + ۱ چرخ خیاطی)</small>
+                  </button>
+                </div>
+
+                <strong style="font-size: 0.9rem; color: #fbbf24; display: block; margin-bottom: 8px;">💰 ۲. فروش به بازار جهانی (هر فروش = ۵۰۰۰ سکه به خزانه ملی):</strong>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                  <button id="btn-sell-bread" class="btn btn-success" style="flex: 1; min-width: 140px;">
+                    🍞 فروش ۱ نان<br><small>(از انبار یا مواد خام)</small>
+                  </button>
+                  <button id="btn-sell-building" class="btn btn-success" style="flex: 1; min-width: 140px;">
+                    🏛️ فروش ۱ ساختمان<br><small>(از انبار یا مواد خام)</small>
+                  </button>
+                  <button id="btn-sell-clothes" class="btn btn-success" style="flex: 1; min-width: 140px;">
+                    👔 فروش ۱ لباس<br><small>(از انبار یا مواد خام)</small>
+                  </button>
+                </div>
+                <p style="font-size: 0.78rem; color: #94a3b8; margin-top: 8px;">* سبد مالیات شب: ۱ نان + ۱ ساختمان + ۱ لباس. در صورت تسویه، ۲ توکن جمعیت جدید پاداش دریافت می‌کنید.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 3: Trade & Budget Transfer -->
+          <div id="econ-tab-trade" class="dash-tab-content hidden" data-tab-group="econ">
+            <!-- Goods Trade Between Countries (Collapsible Card) -->
+            <div id="trade-card" class="card collapsible-card" style="border-color: #7c3aed66;">
+              <div class="collapsible-header" onclick="window.toggleCardCollapse('trade-card')">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="collapse-icon">🤝</span>
+                  <h3 style="color: #c084fc; margin-bottom: 0; font-size: 1.05rem;">تجارت کالا با کشورهای دیگر</h3>
+                </div>
+                <span class="collapse-arrow">▾</span>
+              </div>
+              <div class="collapsible-body" style="margin-top: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+                  <div class="trade-mode-buttons" style="display: flex; gap: 6px;">
+                    <button type="button" id="btn-trade-mode-sell" class="btn btn-secondary trade-mode-btn active-trade-mode" style="padding: 5px 12px; font-size: 0.82rem;">📤 پیشنهاد فروش (ما می‌فروشیم)</button>
+                    <button type="button" id="btn-trade-mode-buy" class="btn btn-secondary trade-mode-btn" style="padding: 5px 12px; font-size: 0.82rem;">📥 درخواست خرید (ما می‌خریم)</button>
+                    <input type="hidden" id="trade-action-type" value="sell">
+                  </div>
+                </div>
+                <p id="trade-mode-desc" style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 12px;">پیشنهاد فروش کالا (نان/ساختمان/لباس) از انبار خود به سایر کشورها با قیمت توافقی. پس از تأیید طرف مقابل، کالا تحویل و سکه به خزانه شما واریز می‌شود.</p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 10px; align-items: end; flex-wrap: wrap;">
+                  <div>
+                    <label id="trade-target-country-label" style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 4px;">کشور خریدار (مقصد فروش):</label>
+                    <select id="trade-target-country" style="width: 100%; padding: 8px; font-size: 0.85rem;"></select>
+                  </div>
+                  <div>
+                    <label style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 4px;">نوع کالا:</label>
+                    <select id="trade-good-type" style="width: 100%; padding: 8px; font-size: 0.85rem;">
+                      <option value="bread">🍞 نان</option>
+                      <option value="building">🏛️ ساختمان</option>
+                      <option value="clothes">👔 لباس</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 4px;">تعداد:</label>
+                    <input type="number" id="trade-quantity" min="1" value="1" style="width: 100%; padding: 8px; font-size: 0.85rem;">
+                  </div>
+                  <div>
+                    <label style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 4px;">قیمت پیشنهادی کل (سکه):</label>
+                    <input type="number" id="trade-price" min="0" step="1000" value="5000" style="width: 100%; padding: 8px; font-size: 0.85rem;">
+                  </div>
+                  <button id="btn-propose-trade" class="btn btn-primary" style="padding: 8px 16px;">📤 ارسال پیشنهاد فروش</button>
+                </div>
+
+                <!-- Incoming Trade Offers -->
+                <div id="incoming-trades" style="margin-top: 14px; display: none;">
+                  <strong style="font-size: 0.9rem; color: #f59e0b;">📬 پیشنهادهای تجاری دریافتی:</strong>
+                  <div id="trade-offers-list" style="margin-top: 8px; display: flex; flex-direction: column; gap: 8px;"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Economy Budget Transfer (Morning & Night) (Collapsible Card) -->
+            <div id="econ-transfer-card" class="card collapsible-card econ-transfer-card" style="margin-top: 14px;">
+              <div class="collapsible-header" onclick="window.toggleCardCollapse('econ-transfer-card')">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="collapse-icon">🏛️</span>
+                  <h3 style="margin-bottom: 0; font-size: 1.05rem;">انتقال بودجه به خزانه ملی یا سایر کشورها</h3>
+                </div>
+                <span class="collapse-arrow">▾</span>
+              </div>
+              <div class="collapsible-body" style="margin-top: 12px;">
+                <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 12px;">انتقال مستقیم سکه از بودجه وزارت اقتصاد به خزانه ملی کشور یا حواله ارزی به سایر ملل.</p>
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                  <select id="econ-transfer-target" style="padding: 8px 12px; font-size: 0.9rem;">
+                    <!-- Populated dynamically -->
+                  </select>
+                  <input type="number" id="econ-transfer-amount" min="500" step="500" value="2000" placeholder="مبلغ (سکه)" style="width: 140px; padding: 8px;">
+                  <button id="btn-econ-transfer" class="btn btn-warning">🏛️ انتقال بودجه</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- President Overwatch Notice for Economy -->
+          <div id="econ-overwatch-notice" class="card hidden" style="background: #0f172a; border: 1px solid #10b981; text-align: center; padding: 14px; margin-top: 12px; color: #86efac; font-size: 0.95rem;">
+            👁️ <strong>حالت نظارت عالیه (رصد زنده):</strong> شما در حال رصد چرخه تولید، بورس و تجارت ملی هستید. چیدمان توکن‌ها، تولید کالا و تجارت منحصراً در اختیار وزیر اقتصاد است.
+          </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Role: Minister of War -->
+        <div id="view-war" class="role-view hidden war-theater-view">
+          <div class="view-header war-view-header">
+            <div class="war-header-main">
+              <span class="war-military-stamp">CLASSIFIED // MILITARY COMMAND // TOC-01</span>
+              <h2>⚔️ قرارگاه فرماندهی ستاد مشترک ارتش (اتاق وضعیت جنگ)</h2>
+            </div>
+            <div class="war-stats">
+              <span class="stat-badge war-budget-badge" style="border-color: #ef4444; color: #fca5a5; display: inline-flex; align-items: center; gap: 8px;">
+                <span>💰 بودجه عملیاتی: <strong id="war-budget-display">۵٬۰۰۰</strong> سکه</span>
+                <button id="btn-req-budget-war" class="btn btn-warning btn-xs btn-quick-req-budget" title="ارسال درخواست واریز بودجه اضطراری به رئیس‌جمهور">🔔 درخواست بودجه</button>
+                <button id="btn-return-budget-war" class="btn btn-secondary btn-xs btn-quick-return-budget" title="انتقال مازاد بودجه جنگ به خزانه ملی">🏛️ انتقال به خزانه</button>
+              </span>
+              <span class="stat-badge war-fuel-badge">⛽ ذخیره سوخت: <strong id="war-fuel-count">۰</strong> توکن</span>
+              <span class="stat-badge war-tech-badge">🎯 ضریب رزم موشکی: <strong id="war-tech-mult">۱.۰</strong>×</span>
+            </div>
+          </div>
+
+          <!-- Live Operational Status Bar (Always on top) -->
+          <div class="war-op-bar" id="war-op-status-banner" style="margin-bottom: 10px;">
+            <div class="war-op-status">
+              <span class="status-pulse-dot" id="war-turn-pulse-dot"></span>
+              <span class="military-defcon-pill">DEFCON 1</span>
+              <span id="war-turn-status-text">وضعیت: نوبت عملیات نظامی</span>
+            </div>
+            <div class="war-op-telemetry">
+              <span class="tactical-coord-tag">RADAR: ACTIVE 📡</span>
+              <span class="tactical-channel-tag">SEC-LINK: OK 🔒</span>
+            </div>
+            <div class="war-op-actions">
+              <button id="btn-end-turn" class="btn btn-danger btn-end-turn-glow hidden" style="display: none;">⏱️ پایان نوبت من در فاز ظهر</button>
+            </div>
+          </div>
+
+          <!-- Enlarged War Map Container (Always on top) -->
+          <div class="war-map-container" id="war-map-container" style="position: relative; overflow: hidden;">
+            <!-- Tactical Corner Brackets for Military Reconnaissance HUD -->
+            <div class="tactical-bracket tl"></div>
+            <div class="tactical-bracket tr"></div>
+            <div class="tactical-bracket bl"></div>
+            <div class="tactical-bracket br"></div>
+            
+            <!-- Tactical Compass Rose HUD -->
+            <div class="tactical-compass-hud">
+              <span class="compass-n">▲ N</span>
+              <span class="compass-deg">000° SEC-WAR</span>
+            </div>
+
+            <!-- Pan & Zoom Toolbar -->
+            <div class="map-toolbar" style="position: absolute; top: 12px; right: 12px; z-index: 10; display: flex; gap: 6px; background: rgba(15, 23, 42, 0.88); padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border-color); backdrop-filter: blur(6px);">
+              <button id="btn-zoom-in" class="btn btn-secondary" style="padding: 3px 9px; font-size: 0.85rem;" title="بزرگنمایی">🔍➕</button>
+              <button id="btn-zoom-out" class="btn btn-secondary" style="padding: 3px 9px; font-size: 0.85rem;" title="کوچکنمایی">🔍➖</button>
+              <button id="btn-zoom-reset" class="btn btn-secondary" style="padding: 3px 9px; font-size: 0.85rem;" title="تنظیم مجدد">🔄 مرکز</button>
+              <button id="btn-theater-war" class="btn btn-secondary btn-theater-toggle" style="padding: 3px 9px; font-size: 0.85rem;" title="حالت تمام‌صفحه و متمرکز (Esc)">⛶ نمای متمرکز</button>
+              <span style="font-size: 0.75rem; color: #94a3b8; align-self: center; margin-right: 4px;">🖐️ درگ برای جابه‌جایی | اسکرول برای زوم | کلیک برای هدایت و حمله</span>
+            </div>
+            <button class="btn-exit-theater hidden" onclick="window.toggleTheaterMode('war-map-container')">❌ خروج از نمای متمرکز (Esc)</button>
+            
+            <!-- Essential Floating Quick-Actions Bar for War Map (Visible when bottom dashboard is hidden) -->
+            <div class="map-floating-bar war-floating-bar" id="war-quick-floating-bar">
+              <div class="floating-group">
+                <span class="floating-badge">⛽ سوخت: <strong id="quick-war-fuel-count">۰</strong></span>
+                <button type="button" class="btn btn-warning btn-xs" id="btn-quick-fuel-1" title="خرید ۱ سوخت (۵۰۰ سکه)">➕۱ (۵۰۰💰)</button>
+                <button type="button" class="btn btn-warning btn-xs" id="btn-quick-fuel-3" title="خرید ۳ سوخت (۱٬۵۰۰ سکه)">➕۳ (۱٬۵۰۰💰)</button>
+              </div>
+              <div class="floating-group">
+                <button type="button" class="btn btn-secondary btn-xs btn-quick-expand" id="btn-quick-expand" title="فعال/غیرفعال‌سازی تصرف هکس‌های هم‌مرز بدون حرکت ارتش">
+                  🌍 گسترش با سوخت: <span id="quick-expand-status">خاموش ⚪</span>
+                </button>
+              </div>
+              <div class="floating-group">
+                <button type="button" class="btn btn-primary btn-xs" id="btn-quick-buy-army" title="خرید و استقرار ۳۰ سرباز جدید در پایتخت یا مخازن">🎖️ باکس جدید (۳۰K 💰)</button>
+                <button type="button" class="btn btn-success btn-xs" id="btn-quick-reinf" title="شارژ ۱۰ سرباز به ارتش انتخابی">⚡ شارژ ارتش (+۱۰)</button>
+                <button type="button" class="btn btn-danger btn-xs hidden" id="btn-quick-cancel-army" title="لغو انتخاب ارتش">❌ انصراف</button>
+              </div>
+            </div>
+
+            <!-- Top-Left Floating Unit Info Badge -->
+            <div class="map-floating-unit-badge war-unit-badge" id="war-unit-badge">
+              <span class="badge-icon">🎯</span>
+              <span id="quick-selected-unit-label">ارتش: انتخابی نشده</span>
+            </div>
+
+            <svg id="hex-map-svg" viewBox="0 0 900 520" class="hex-svg" style="cursor: grab;">
+              <!-- Rendered via hexMap.js -->
+            </svg>
+          </div>
+
+          <!-- War Guidance Tip (Dismissible) -->
+          <div class="war-guidance" id="war-guidance-tip" style="margin-top: 8px; margin-bottom: 8px; line-height: 1.5; font-size: 0.8rem; display: flex; justify-content: space-between; align-items: center;">
+            <div>🎖️ <strong>دستورالعمل تاکتیکی ستاد کل:</strong> جهت هدایت ارتش ابتدا روی هکس خودی و سپس هکس مقصد کلیک کنید (هر گام: ۱ سوخت). جهت پیشروی سریع بدون جابه‌جایی پیاده‌نظام، سوئیچ گسترش با سوخت را فعال کنید.</div>
+            <button type="button" class="btn-dismiss-hint" onclick="document.getElementById('war-guidance-tip').style.display='none'" title="بستن راهنما">✕</button>
+          </div>
+
+          <!-- Dashboard Controls Section (Collapsible/Hideable) -->
+          <div class="dashboard-controls-wrapper" id="war-controls-wrapper">
+            <div class="dashboard-dock-bar">
+              <button type="button" class="btn-toggle-dashboard" id="btn-toggle-dashboard-war" onclick="window.toggleBottomDashboard('war')">
+                <span class="dock-icon">🎛️</span>
+                <span class="dock-label">کنسول فرماندهی عملیات: مانور تیپ‌ها، آمادگاه سوخت و پادگان</span>
+                <span class="dock-status-hint">(کلیک یا کلید D برای بستن/باز کردن)</span>
+                <span class="dock-arrow">▾</span>
+              </button>
+            </div>
+            <div class="dashboard-controls-body" id="war-controls-body">
+              <!-- War Dashboard Tab Bar for Remaining Sections -->
+              <div class="dashboard-tab-bar war-tab-bar">
+                <button class="dashboard-tab-btn active" data-tab-group="war" data-tab-target="war-tab-controller">🎮 مرکز هدایت رزم، مانور و لجستیک</button>
+                <button class="dashboard-tab-btn" data-tab-group="war" data-tab-target="war-tab-barracks">🛡️ پادگان پدافند و جذب نیروی مسلح</button>
+              </div>
+
+          <!-- Tab 1: Fuel Hub, Fast Expansion & Army D-Pad Navigation -->
+          <div id="war-tab-controller" class="dash-tab-content active" data-tab-group="war">
+            <!-- Advanced Tactical War Controller Console -->
+            <div id="war-tactical-console" class="card war-tactical-controller">
+              <div class="war-controller-grid">
+                
+                <!-- Column 1: Smart Fuel & Fast Territory Expansion Hub -->
+                <div class="tactical-panel fuel-panel">
+                  <div class="panel-header">
+                    <div class="panel-title">
+                      <span class="panel-icon">⛽</span>
+                      <strong>آمادگاه و مرکز مدیریت سوخت رزمی</strong>
+                      <span class="tactical-subtag">LOGISTICS // SUPPLY</span>
+                    </div>
+                    <div class="fuel-live-badge">
+                      موجودی سوخت: <strong id="war-fuel-count-display">۰</strong> توکن
+                    </div>
+                  </div>
+
+                  <div class="fuel-actions-row">
+                    <span style="font-size: 0.85rem; color: #94a3b8;">خرید سریع سوخت:</span>
+                    <div class="quick-fuel-btns">
+                      <button id="btn-buy-fuel-1" class="btn btn-warning btn-sm">➕۱ (۵۰۰ 💰)</button>
+                      <button id="btn-buy-fuel-3" class="btn btn-warning btn-sm">➕۳ (۱٬۵۰۰ 💰)</button>
+                      <button id="btn-buy-fuel-5" class="btn btn-warning btn-sm">➕۵ (۲٬۵۰۰ 💰)</button>
+                    </div>
+                  </div>
+
+                  <div class="war-treasury-transfer-row" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #334155; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 0.82rem; color: #94a3b8;">مازاد بودجه دفاعی:</span>
+                    <button id="btn-quick-transfer-treasury-war" class="btn btn-secondary btn-xs" title="واریز مازاد بودجه جنگ به خزانه ملی">🏛️ انتقال بودجه به خزانه ملی</button>
+                  </div>
+
+                  <!-- Fast Expansion Switch & Neighbor Hex Quick-Selector -->
+                  <div class="expansion-hub-card">
+                    <div class="expansion-header-toggle">
+                      <div>
+                        <strong style="color: #fde047; font-size: 0.95rem;">🌍 گسترش سریع قلمرو با سوخت</strong>
+                        <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">
+                          تصرف فوری هکس‌های خنثی هم‌مرز بدون جابه‌جایی ارتش (هر هکس: ۱ سوخت)
+                        </div>
+                      </div>
+                      <button id="btn-toggle-expand" class="btn btn-secondary btn-toggle-switch">
+                        خاموش ⚪
+                      </button>
+                    </div>
+
+                    <!-- Dynamic Expansion Destination Chips -->
+                    <div id="expansion-chips-container" class="expansion-chips-container" style="display: none;">
+                      <div style="font-size: 0.8rem; color: #4ade80; font-weight: bold; margin-bottom: 6px;">
+                        🎯 هکس‌های خنثی مجاور (کلیک برای تصرف آنی یا کلیک روی نقشه):
+                      </div>
+                      <div id="expansion-chips-list" class="expansion-chips-list">
+                        <!-- Populated dynamically via hexMap.js -->
+                        <span style="font-size: 0.8rem; color: #64748b;">در حال محاسبه هکس‌های هم‌مرز...</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Column 2: Army Navigation & Directional Command D-Pad -->
+                <div class="tactical-panel army-panel">
+                  <div class="panel-header">
+                    <div class="panel-title">
+                      <span class="panel-icon">⚔️</span>
+                      <strong>مرکز هدایت آتش، ناوبری و مانور تیپ‌ها</strong>
+                      <span class="tactical-subtag">FIRE DIRECTION // CORPS</span>
+                    </div>
+                    <div id="army-selection-summary" style="font-size: 0.8rem; color: #94a3b8;">
+                      هیچ باکسی انتخاب نشده است
+                    </div>
+                  </div>
+
+                  <!-- Army Units Carousel / Selectable Unit Cards -->
+                  <div class="army-carousel-label">
+                    <span>باکس‌های ارتش شما (برای انتخاب و صدور فرمان کلیک کنید):</span>
+                  </div>
+                  <div id="army-boxes-carousel" class="army-boxes-carousel">
+                    <!-- Populated dynamically: Cards for Box 1, Box 2, etc. -->
+                  </div>
+
+                  <!-- Directional Tactical Movement D-Pad -->
+                  <div id="tactical-dpad-container" class="tactical-dpad-container">
+                    <div class="dpad-info-bar">
+                      <span id="dpad-selected-unit-label" style="font-weight: bold; color: #facc15;">انتخاب باکس ارتش الزامی است</span>
+                      <button id="btn-cancel-army-select" class="btn btn-secondary btn-xs hidden" style="font-size: 0.75rem; padding: 2px 8px;">❌ انصراف</button>
+                    </div>
+                    <div id="dpad-directions-grid" class="dpad-directions-grid">
+                      <!-- 6 Directional Sector Tiles (NW, NE, E, SE, SW, W) generated dynamically -->
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 3: Recruitment & Reinforcement Deck -->
+          <div id="war-tab-barracks" class="dash-tab-content hidden" data-tab-group="war">
+            <div id="card-war-barracks" class="card collapsible-card" style="padding: 20px;">
+              <div class="collapsible-header" onclick="window.toggleCardCollapse('card-war-barracks')">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="collapse-icon">🛡️</span>
+                  <strong style="font-size: 1.05rem;">پادگان جذب، آموزش و تقویت نیروهای مسلح</strong>
+                </div>
+                <span class="collapse-arrow">▾</span>
+              </div>
+              <div class="collapsible-body" style="margin-top: 14px;">
+                <div class="tactical-panel recruit-panel">
+                  <div class="recruit-tabs-header">
+                    <div class="recruit-tab-buttons">
+                      <button id="tab-btn-recruit-new" class="recruit-tab-btn active">🎖️ خرید باکس جدید (پایتخت/مخازن)</button>
+                      <button id="tab-btn-reinforce-box" class="recruit-tab-btn">⚡ شارژ باکس در خط مقدم</button>
+                    </div>
+                  </div>
+
+                  <!-- Sub-tab 1: New Army Box -->
+                  <div id="tab-content-recruit-new" class="recruit-tab-content" style="margin-top: 14px;">
+                    <div class="recruit-form-row">
+                      <div class="quick-soldier-presets">
+                        <span style="font-size: 0.85rem; color: #94a3b8;">تعداد سرباز:</span>
+                        <button class="btn btn-secondary btn-preset-soldiers active" data-count="30">۳۰ نفر</button>
+                        <button class="btn btn-secondary btn-preset-soldiers" data-count="50">۵۰ نفر</button>
+                        <button class="btn btn-secondary btn-preset-soldiers" data-count="100">۱۰۰ نفر</button>
+                        <input type="number" id="input-new-army-soldiers" min="30" value="30" style="width: 85px; padding: 6px; text-align: center;">
+                      </div>
+                      <div class="recruit-action-group">
+                        <span id="new-army-cost-preview" class="cost-preview-badge">هزینه: ۳۰٬۰۰۰ سکه</span>
+                        <button id="btn-buy-army" class="btn btn-primary">خرید و استقرار باکس جدید</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Sub-tab 2: Reinforce Existing Box -->
+                  <div id="tab-content-reinforce-box" class="recruit-tab-content hidden" style="margin-top: 14px;">
+                    <div class="recruit-form-row">
+                      <div style="display: flex; gap: 10px; align-items: center; flex: 1;">
+                        <select id="select-reinforce-box" style="padding: 8px 12px; font-size: 0.85rem; flex: 1;">
+                          <option value="">انتخاب باکس ارتش...</option>
+                        </select>
+                        <div class="quick-reinforce-presets">
+                          <button class="btn btn-secondary btn-preset-reinf" data-count="5">+۵</button>
+                          <button class="btn btn-secondary btn-preset-reinf" data-count="10">+۱۰</button>
+                          <button class="btn btn-secondary btn-preset-reinf" data-count="20">+۲۰</button>
+                          <button class="btn btn-secondary btn-preset-reinf" data-count="50">+۵۰</button>
+                          <input type="number" id="input-reinforce-soldiers" min="5" value="10" style="width: 70px; padding: 6px; text-align: center;">
+                        </div>
+                      </div>
+                      <div class="recruit-action-group">
+                        <span id="reinf-cost-preview" class="cost-preview-badge">هزینه: ۱۰٬۰۰۰ سکه</span>
+                        <button id="btn-reinforce-army" class="btn btn-success">شارژ ارتش خط مقدم</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- President Overwatch Notice for War -->
+          <div id="war-overwatch-notice" class="card hidden" style="background: #0f172a; border: 1px solid #3b82f6; text-align: center; padding: 14px; margin-top: 12px; color: #93c5fd; font-size: 0.95rem;">
+            👁️ <strong>حالت نظارت عالیه (رصد زنده):</strong> شما در حال مشاهده نقشه ستاد جنگ هستید. جابه‌جایی ارتش، خرید نیرو و صدور فرامین عملیاتی منحصراً در اختیار وزیر جنگ است.
+          </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Role: President -->
+        <div id="view-president" class="role-view hidden pres-palace-view">
+          <div class="view-header pres-view-header">
+            <div class="pres-header-main">
+              <span class="pres-palace-stamp">EXECUTIVE STATE OFFICE // کاخ ریاست‌جمهوری</span>
+              <h2>🏛️ کاخ ریاست‌جمهوری (دیپلماسی بین‌الملل، خزانه کل و آزمایشگاه فناوری)</h2>
+            </div>
+            <div class="pres-stats">
+              <span class="stat-badge pres-tech-badge">🔬 سطح فناوری ملی: <strong id="pres-tech-level">۱</strong></span>
+              <span class="stat-badge pres-power-badge">⚡ ضریب قدرت ملی: <strong id="pres-tech-mult">۱.۰×</strong></span>
+            </div>
+          </div>
+
+          <!-- President Tab Bar -->
+          <div class="dashboard-tab-bar pres-tab-bar">
+            <button class="dashboard-tab-btn active" data-tab-group="pres" data-tab-target="pres-tab-tech">🔬 آزمایشگاه توسعه فناوری</button>
+            <button class="dashboard-tab-btn" data-tab-group="pres" data-tab-target="pres-tab-budget">🏛️ خزانه ملی و بودجه وزرا</button>
+            <button class="dashboard-tab-btn" data-tab-group="pres" data-tab-target="pres-tab-diplomacy">📞 خط قرمز دیپلماسی</button>
+          </div>
+
+          <!-- Tab 1: Tech Development & Puzzles -->
+          <div id="pres-tab-tech" class="dash-tab-content active" data-tab-group="pres">
+            <div class="card tech-card" style="padding: 20px;">
+              <h3 style="color: #60a5fa; font-size: 1.15rem;">🔬 آزمایشگاه توسعه فناوری ملی</h3>
+              <p class="card-desc" style="font-size: 0.9rem; margin-bottom: 14px;">حل پازل‌های فناوری ضریب ارتش در نبرد و توان تولید اقتصاد کشور را به‌طور دائمی ارتقا می‌دهد.</p>
+
+              <div id="puzzle-locked-state" class="puzzle-box">
+                <p style="color: #cbd5e1; font-size: 0.95rem;">🔒 مدار این سطح قفل است. جهت رمزگشایی و بارگذاری صورت پازل از خزانه کل هزینه پرداخت کنید.</p>
+                <button id="btn-unlock-puzzle" class="btn btn-warning" style="padding: 10px 20px; font-weight: bold;">باز کردن پازل فناوری (۵۰۰۰ سکه)</button>
+              </div>
+
+              <div id="puzzle-active-state" class="puzzle-box hidden">
+                <div class="puzzle-prompt" id="puzzle-prompt-text" style="font-size: 1.05rem;">صورت پازل...</div>
+                <div class="puzzle-interactive" id="puzzle-interactive-area">
+                  <!-- Puzzle interactive elements -->
+                </div>
+                <div class="puzzle-submit-group" style="margin-top: 14px;">
+                  <input type="text" id="puzzle-answer-input" placeholder="پاسخ نهایی پازل را تایپ کنید..." style="padding: 10px 14px; font-size: 0.95rem;">
+                  <button id="btn-submit-puzzle" class="btn btn-success" style="padding: 10px 20px; font-weight: bold;">ثبت پاسخ در پایگاه داده (۲۰۰۰ سکه)</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 2: Treasury & Ministry Budget Allocation -->
+          <div id="pres-tab-budget" class="dash-tab-content hidden" data-tab-group="pres">
+            <div style="display: flex; flex-direction: column; gap: 16px;">
+              <!-- Internal Ministry Budget Allocation -->
+              <div class="card" style="border-color: #10b981; padding: 20px;">
+                <h3 style="color: #34d399; font-size: 1.15rem;">🏛️ مدیریت خزانه ملی و تخصیص بودجه به وزرا (مخصوص رئیس‌جمهور)</h3>
+                <p class="card-desc" style="margin-bottom: 16px; font-size: 0.88rem;">
+                  کنترل خزانه اصلی در اختیار رئیس‌جمهور است. وزرای جنگ و اقتصاد برای خرید سوخت، ارتش و ابزار نیاز به تخصیص بودجه دارند:
+                </p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                  <!-- War Ministry Allocation -->
+                  <div style="background: #0f172a; padding: 16px; border-radius: 10px; border: 1px solid #dc262688;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                      <strong style="color: #f87171; font-size: 1rem;">⚔️ وزارت جنگ</strong>
+                      <span style="font-size: 0.85rem; color: #94a3b8;">بودجه فعلی:</span>
+                    </div>
+                    <div style="font-size: 1.5rem; font-weight: bold; color: #fff; margin: 8px 0;" id="pres-display-war-budget">۵٬۰۰۰ سکه</div>
+                    <div style="display: flex; gap: 8px; margin-top: 10px;">
+                      <input type="number" id="input-allocate-war" min="500" step="500" value="2000" placeholder="مبلغ" style="width: 100px; padding: 8px;">
+                      <button id="btn-allocate-war" class="btn btn-danger" style="flex: 1; font-size: 0.85rem; font-weight: bold;">تخصیص ➕</button>
+                      <button id="btn-reclaim-war" class="btn btn-secondary" style="font-size: 0.85rem;" title="بازگرداندن به خزانه">برگشت ↩️</button>
+                    </div>
+                  </div>
+
+                  <!-- Economy Ministry Allocation -->
+                  <div style="background: #0f172a; padding: 16px; border-radius: 10px; border: 1px solid #16a34a88;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                      <strong style="color: #4ade80; font-size: 1rem;">📈 وزارت اقتصاد و دارایی</strong>
+                      <span style="font-size: 0.85rem; color: #94a3b8;">بودجه فعلی:</span>
+                    </div>
+                    <div style="font-size: 1.5rem; font-weight: bold; color: #fff; margin: 8px 0;" id="pres-display-econ-budget">۵٬۰۰۰ سکه</div>
+                    <div style="display: flex; gap: 8px; margin-top: 10px;">
+                      <input type="number" id="input-allocate-econ" min="500" step="500" value="2000" placeholder="مبلغ" style="width: 100px; padding: 8px;">
+                      <button id="btn-allocate-econ" class="btn btn-success" style="flex: 1; font-size: 0.85rem; font-weight: bold;">تخصیص ➕</button>
+                      <button id="btn-reclaim-econ" class="btn btn-secondary" style="font-size: 0.85rem;" title="بازگرداندن به خزانه">برگشت ↩️</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Foreign Treasury Transfer Card -->
+              <div class="card treasury-card" style="padding: 20px;">
+                <h3 style="color: #facc15; font-size: 1.15rem;">💰 بانک مرکزی و انتقال مستقیم ارز به کشورهای خارجی</h3>
+                <p class="card-desc" style="font-size: 0.88rem; margin-bottom: 14px;">انتقال رسمی سکه از خزانه کشور به خزانه سایر کشورها (جهت معاهدات، وام یا خرید اطلاعات دیپلماتیک):</p>
+                <div class="transfer-form" style="display: flex; gap: 12px; align-items: end; flex-wrap: wrap;">
+                  <div style="flex: 1; min-width: 180px;">
+                    <label style="display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 4px;">کشور مقصد:</label>
+                    <select id="transfer-target-country" style="width: 100%; padding: 8px; font-size: 0.9rem;">
+                      <!-- Populated dynamically -->
+                    </select>
+                  </div>
+                  <div style="width: 160px;">
+                    <label style="display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 4px;">مبلغ انتقال (سکه):</label>
+                    <input type="number" id="transfer-amount" min="500" step="500" value="2000" style="width: 100%; padding: 8px; font-size: 0.9rem;">
+                  </div>
+                  <button id="btn-transfer-coins" class="btn btn-primary" style="padding: 9px 20px; font-weight: bold;">انتقال امن وجه از خزانه</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 3: Bilateral Secret President Hotline -->
+          <div id="pres-tab-diplomacy" class="dash-tab-content hidden" data-tab-group="pres">
+            <div class="card" style="border-color: #818cf8; padding: 20px;">
+              <h3 style="color: #a5b4fc; font-size: 1.15rem;">📞 خط قرمز محرمانه (مکالمه مستقیم با سایر رؤسای جمهور)</h3>
+              <p class="card-desc" style="margin-bottom: 14px; font-size: 0.88rem;">
+                روی هر کشور کلیک کنید تا خط صوتی و متنی کاملاً محرمانه با رئیس‌جمهور آن کشور برقرار شود (هیچ شخص دیگری نمی‌شنود):
+              </p>
+              <div id="president-diplomacy-list" style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <!-- Populated dynamically with name and country of each president -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Left (in RTL): Real-time Comms & Diplomatic Terminal (Collapsible) -->
+      <aside class="comms-panel card">
+        <!-- Prominent Panel Header Bar with Close Button -->
+        <div class="comms-panel-topbar">
+          <div class="comms-title-group">
+            <span class="comms-icon">💬</span>
+            <strong>ارتباطات، ویس و چت</strong>
+          </div>
+          <button type="button" id="btn-comms-close-panel" class="btn-comms-close" title="بستن و جمع‌کردن سایدبار (کلید میانبر C)">
+            <span>بستن پنل</span>
+            <span class="close-arrow">◀</span>
+          </button>
+        </div>
+
+        <!-- Voice Chat Widget -->
+        <div class="voice-panel" id="voice-chat-widget">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <strong style="font-size: 0.85rem; color: #a78bfa; display: flex; align-items: center; gap: 6px;">
+              <span>🎙️ ویس‌چت ریل‌تایم (VoIP)</span>
+            </strong>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span id="voice-status" style="font-size: 0.72rem; color: #94a3b8;">میکروفون قطع</span>
+              <button type="button" id="btn-toggle-voice-widget" class="btn-voice-toggle" title="جمع‌کردن / باز کردن کنترل‌های صوتی">▾</button>
+            </div>
+          </div>
+          <div class="voice-body" id="voice-body-controls">
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button id="btn-toggle-mic" class="btn btn-secondary" style="flex: 1; padding: 6px 10px; font-size: 0.8rem; border-color: #8b5cf644;">
+                🎤 وصل میکروفون
+              </button>
+              <div id="voice-indicator" title="وضعیت گفتگو" style="width: 12px; height: 12px; border-radius: 50%; background: #475569; transition: all 0.2s;"></div>
+            </div>
+            <div id="active-voice-channel-name" style="font-size: 0.72rem; color: #34d399; margin-top: 5px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">🟢 کانال صوتی فعال: [اتصال خودکار]</div>
+            <div style="margin-top: 8px;">
+              <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 3px;">🎙️ مخاطب گفتگو (صوتی و متنی):</label>
+              <select id="voice-audience-select" style="width: 100%; padding: 5px 8px; font-size: 0.8rem; background: #1e293b; color: #f8fafc; border: 1px solid var(--border-color); border-radius: 6px;">
+                <!-- Dynamically populated from available channels -->
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="comms-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+          <h3 style="margin-bottom: 0; font-size: 0.95rem;">پایانه ارتباطات و دیپلماسی</h3>
+          <button id="btn-comms-collapse" class="btn-comms-collapse" title="مخفی‌سازی سایدبار گفتگو (کلید C)">✕</button>
+          <div id="channel-tabs" class="channel-tabs" style="width: 100%; margin-top: 6px;">
+            <!-- Dynamic channel tabs based on current phase and role -->
+          </div>
+        </div>
+
+        <div id="chat-messages" class="chat-messages">
+          <!-- Messages flow here -->
+        </div>
+
+        <div id="chat-form" class="chat-form">
+          <input type="text" id="chat-input" placeholder="پیام دیپلماتیک یا نظامی خود را بنویسید..." autocomplete="off">
+          <button id="btn-chat-send" type="button" class="btn btn-primary">ارسال</button>
+        </div>
+      </aside>
+
+      <!-- Floating Side Tab to re-open Comms Panel when collapsed -->
+      <button type="button" id="btn-comms-dock-tab" class="comms-dock-tab" title="نمایش سایدبار گفتگو و ویس‌چت (کلید میانبر C)" onclick="window.toggleCommsSidebar()">
+        <span class="dock-tab-icon">💬</span>
+        <span class="dock-tab-text">چت و ویس</span>
+        <span id="dock-unread-dot" class="dock-unread-dot hidden"></span>
+      </button>
+    </main>
+  </div>
+
+  <!-- Center Screen Turn Arrival Announcement (اعلام نوبت در مرکز صفحه) -->
+  <div id="turn-announcement-modal" class="modal-overlay hidden" style="z-index: 9999;">
+    <div class="modal-content card turn-announcement-card">
+      <div class="turn-announcement-header">
+        <span class="turn-announcement-icon">🎯⚔️</span>
+        <h2 class="turn-announcement-title">نوبت عملیات نظامی شما فرا رسید!</h2>
+      </div>
+      <div class="turn-announcement-body">
+        <div class="turn-announcement-badges">
+          <span class="turn-announcement-badge" id="turn-announcement-country-badge">کشور: سرخستان</span>
+          <span class="turn-announcement-badge phase-noon" style="color: #f59e0b; border-color: #f59e0b;">فاز ظهر (عملیات جنگی)</span>
+        </div>
+        <p class="turn-announcement-desc" id="turn-announcement-desc">
+          فرمانده محترم، اکنون کنترل کامل خط مقدم در اختیار شماست! می‌توانید با ارتش مانور دهید یا بجنگید، و با مصرف سوخت قلمروهای هم‌مرز را فتح نمایید.
+        </p>
+        <div class="turn-announcement-timer-box">
+          <span>⏱️ زمان باقی‌مانده نوبت:</span>
+          <strong id="turn-announcement-timer">۴۰ ثانیه</strong>
+        </div>
+      </div>
+      <div class="turn-announcement-actions">
+        <button id="btn-dismiss-turn-announcement" class="btn btn-danger btn-pulse-turn">
+          ⚔️ شروع عملیات نظامی (متوجه شدم)
+        </button>
+      </div>
+      <div class="turn-announcement-progress-bar">
+        <div id="turn-announcement-progress" class="progress-bar-inner"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tactical Battle Clash Modal (میدان نبرد تن‌به‌تن و ارزیابی درگیری) -->
+  <div id="battle-modal" class="modal-overlay hidden">
+    <div class="modal-content card battle-modal-content">
+      
+      <!-- Caution Hazard Strip for War Room Engagement -->
+      <div class="tactical-hazard-strip">⚠️ SITUATION ROOM: DIRECT TACTICAL ENGAGEMENT // درگیری مستقیم تیپ‌های خط مقدم ⚠️</div>
+
+      <!-- Modal Header -->
+      <div class="battle-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="battle-flame-icon">⚔️🔥</span>
+          <h2 id="battle-modal-title" style="margin-bottom: 0; color: #f87171; font-size: 1.3rem;">اتاق وضعیت جنگ: شبیه‌ساز و ارزیابی نبرد</h2>
+        </div>
+        <button id="btn-close-battle-modal" class="btn btn-secondary btn-xs" style="font-size: 1rem; padding: 2px 8px;">✕</button>
+      </div>
+
+      <!-- Pre-Battle Stage: Side-by-Side Confrontation Cards -->
+      <div id="battle-stage-preview" class="battle-stage">
+        
+        <!-- Right Card: Attacker -->
+        <div class="battle-side-card" id="battle-attacker-card">
+          <div class="tactical-unit-stamp">[ASSAULT CORPS // نیروهای تهاجمی]</div>
+          <div class="side-badge attacker-badge">مهاجم 🏹</div>
+          <div class="side-country-title" id="battle-att-country-name">سرخستان</div>
+          <div class="side-stat-row">
+            <span>تعداد سربازان ارتش:</span>
+            <strong id="battle-att-soldiers">۴۰ نفر</strong>
+          </div>
+          <div class="side-stat-row">
+            <span>ضریب فناوری کشور:</span>
+            <strong id="battle-att-tech" class="tech-mult-highlight">۱.۲×</strong>
+          </div>
+          <div class="side-formula-box">
+            <div class="formula-title">فرمول محاسبه قدرت تهاجمی:</div>
+            <div class="formula-calc" id="battle-att-formula">۴۰ × ۱.۲</div>
+            <div class="formula-total">قدرت موثر حمله: <span id="battle-att-power">۴۸</span></div>
+          </div>
+        </div>
+
+        <!-- Center: VS Emblem with animated swords -->
+        <div class="battle-vs-emblem">
+          <div class="vs-swords">⚔️</div>
+          <div class="vs-text">نبرد</div>
+          <div class="vs-hex-target" id="battle-target-hex-id">در هکس hex_5_4</div>
+        </div>
+
+        <!-- Left Card: Defender -->
+        <div class="battle-side-card" id="battle-defender-card">
+          <div class="tactical-unit-stamp">[DEFENSE CORPS // پدافند موضعی]</div>
+          <div class="side-badge defender-badge">مدافع 🛡️</div>
+          <div class="side-country-title" id="battle-def-country-name">آبی‌پلیس</div>
+          <div class="side-stat-row">
+            <span>نیروهای مدافع:</span>
+            <strong id="battle-def-soldiers">۳۰ نفر</strong>
+          </div>
+          <div class="side-stat-row">
+            <span>ضریب فناوری مدافع:</span>
+            <strong id="battle-def-tech" class="tech-mult-highlight">۱.۰×</strong>
+          </div>
+          <!-- Capital Defense Indicator -->
+          <div id="battle-capital-defense-badge" class="capital-defense-indicator hidden">
+            <span>👑 دژ مستحکم پایتخت:</span>
+            <strong>+۲.۰ ضریب دفاعی مضاعف!</strong>
+          </div>
+          <div class="side-formula-box">
+            <div class="formula-title">فرمول محاسبه قدرت تدافعی:</div>
+            <div class="formula-calc" id="battle-def-formula">۳۰ × (۱.۰ + ۲.۰)</div>
+            <div class="formula-total">قدرت موثر دفاع: <span id="battle-def-power">۹۰</span></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Power Comparison Bar (Tug-of-War Gauge) -->
+      <div class="battle-power-bar-wrapper">
+        <div class="power-bar-labels">
+          <span id="battle-att-bar-label">مهاجم: ۵۰٪</span>
+          <span style="font-weight: 700; color: #94a3b8;">توازن قوا در صحنه نبرد</span>
+          <span id="battle-def-bar-label">مدافع: ۵۰٪</span>
+        </div>
+        <div class="power-comparison-bar">
+          <div id="battle-att-bar-fill" class="bar-fill att-fill" style="width: 50%;"></div>
+          <div id="battle-def-bar-fill" class="bar-fill def-fill" style="width: 50%;"></div>
+        </div>
+      </div>
+
+      <!-- Tactical Odds & Warning Assessment -->
+      <div id="battle-assessment-advice" class="battle-advice-card favorable">
+        <!-- Dynamic: Victory likely vs Defeat warning -->
+      </div>
+
+      <!-- Post-Battle Outcome Section (Revealed after clash) -->
+      <div id="battle-outcome-section" class="battle-outcome-card hidden">
+        <div id="battle-outcome-banner" class="outcome-banner victory">
+          <span class="outcome-icon" id="battle-outcome-icon">🏆</span>
+          <div id="battle-outcome-text">پیروزی قاطع ارتش مهاجم!</div>
+        </div>
+        <div class="outcome-stats-grid">
+          <div class="outcome-stat-box">
+            <span class="stat-label">سربازان بازمانده:</span>
+            <strong id="battle-outcome-survivors" style="color: #4ade80;">۲۴ نفر</strong>
+          </div>
+          <div class="outcome-stat-box">
+            <span class="stat-label">تلفات وارده به دشمن:</span>
+            <strong id="battle-outcome-losses" style="color: #f87171;">۳۰ نفر (نابودی کامل)</strong>
+          </div>
+        </div>
+        <div id="battle-capital-fallen-alert" class="capital-fallen-alert hidden">
+          👑 <strong>سقوط کامل پایتخت دشمن!</strong> تمام خزاین و اراضی کشور مغلوب به تصرف ارتش فاتح درآمد و کشور شکست‌خورده از بازی حذف شد.
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="battle-actions" id="battle-action-buttons">
+        <button id="btn-confirm-attack" class="btn btn-danger btn-battle-attack">⚔️ صدور فرمان حمله و اعزام ارتش (مصرف ۱ سوخت)</button>
+        <button id="btn-retreat-attack" class="btn btn-secondary">❌ انصراف و عقب‌نشینی</button>
+      </div>
+
+      <div class="battle-actions hidden" id="battle-close-action-buttons">
+        <button id="btn-done-battle" class="btn btn-primary" style="min-width: 150px;">فهمیدم ✔️</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Screen 3: Game Finished Modal -->
+  <div id="game-over-modal" class="modal-overlay hidden">
+    <div class="modal-content card">
+      <h2>🏆 پایان بازی استراتژی کلان (راند ۸)</h2>
+      <p class="modal-subtitle">رده‌بندی نهایی کشورها بر اساس شاخص‌های فناوری، نظامی، اقتصاد و جمعیت:</p>
+
+      <table class="ranking-table">
+        <thead>
+          <tr>
+            <th>رتبه</th>
+            <th>کشور</th>
+            <th>امتیاز کل</th>
+            <th>فناوری</th>
+            <th>نظامی</th>
+            <th>اقتصاد (سکه + انبار)</th>
+            <th>جمعیت</th>
+          </tr>
+        </thead>
+        <tbody id="ranking-table-body">
+          <!-- Filled dynamically -->
+        </tbody>
+      </table>
+
+      <button id="btn-restart-game" class="btn btn-primary">بازگشت به لابی</button>
+    </div>
+  </div>
+
+  <!-- Floating Bottom Notification Toast for Incoming Trade Proposals (For Minister of Economy & President) -->
+  <div id="trade-bottom-toast" class="trade-bottom-toast hidden">
+    <div class="trade-toast-content">
+      <div class="trade-toast-header">
+        <span class="trade-toast-badge" id="trade-toast-badge">📩 معامله جدید</span>
+        <span class="trade-toast-summary" id="trade-toast-summary">پیشنهاد معامله جدیدی دریافت شد.</span>
+      </div>
+      <div class="trade-toast-actions">
+        <button id="btn-open-trade-modal" class="btn btn-primary btn-sm" style="padding: 5px 12px; font-size: 0.82rem;">👁️ بررسی و پاسخ</button>
+        <button id="btn-dismiss-trade-toast" class="trade-toast-close" title="بستن">✕</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full Trade Detail Modal (Openable by clicking notification toast or trade card) -->
+  <div id="trade-detail-modal" class="modal-overlay hidden">
+    <div class="modal-card trade-modal-card">
+      <div class="modal-header">
+        <h3 id="trade-modal-title">🤝 جزئیات معامله بین‌المللی</h3>
+        <button class="modal-close-btn" onclick="closeTradeModal()">✕</button>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px;">
+        <!-- Direction Banner -->
+        <div id="trade-modal-direction-banner" class="trade-direction-banner">
+          <!-- Filled dynamically: country badges & transfer direction -->
+        </div>
+
+        <!-- Details Grid -->
+        <div class="trade-details-grid">
+          <div class="trade-detail-item">
+            <span class="trade-detail-label">نوع درخواست:</span>
+            <strong id="trade-modal-type-desc">پیشنهاد فروش کالا به شما</strong>
+          </div>
+          <div class="trade-detail-item">
+            <span class="trade-detail-label">کالای مورد نظر:</span>
+            <strong id="trade-modal-good-desc">🍞 نان</strong>
+          </div>
+          <div class="trade-detail-item">
+            <span class="trade-detail-label">تعداد:</span>
+            <strong id="trade-modal-qty-desc">۱ عدد</strong>
+          </div>
+          <div class="trade-detail-item">
+            <span class="trade-detail-label">مبلغ کل پیشنهادی:</span>
+            <strong id="trade-modal-price-desc" style="color: #fbbf24;">۵٬۰۰۰ سکه</strong>
+          </div>
+        </div>
+
+        <!-- Explanatory note -->
+        <div id="trade-modal-explanation" style="font-size: 0.82rem; color: #94a3b8; line-height: 1.5;">
+          <!-- Dynamic explanation -->
+        </div>
+
+        <!-- Live Feasibility / Balance Check Alert -->
+        <div id="trade-modal-balance-status" class="trade-balance-alert ok">
+          <!-- Live balance check filled dynamically -->
+        </div>
+      </div>
+
+      <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px;">
+        <button id="btn-modal-reject-trade" class="btn btn-danger">❌ رد معامله</button>
+        <button id="btn-modal-accept-trade" class="btn btn-success">✅ تأیید و انجام معامله</button>
+        <button class="btn btn-secondary" onclick="closeTradeModal()">بستن</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Budget Request Modal (For Minister of War & Economy) -->
+  <div id="budget-request-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 460px; width: 92%; background: #0f172a; border: 2px solid #f59e0b; border-radius: 14px; padding: 22px; box-shadow: 0 20px 45px rgba(0,0,0,0.85);">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 10px;">
+        <h3 style="margin: 0; color: #fbbf24; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+          <span>🔔</span>
+          <span id="budget-request-modal-title">درخواست بودجه اضطراری از رئیس‌جمهور</span>
+        </h3>
+        <button class="modal-close-btn" onclick="closeBudgetRequestModal()">✕</button>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; margin-top: 14px;">
+        <p style="font-size: 0.85rem; color: #94a3b8; margin: 0; line-height: 1.5;">
+          ارسال درخواست فوری واریز سکه از خزانه ملی به بودجه وزارت شما. رئیس‌جمهور می‌تواند با یک کلیک درخواست شما را تأیید و واریز کند.
+        </p>
+
+        <div>
+          <label style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 6px;">مبالغ پیشنهادی سریع:</label>
+          <div class="budget-req-presets" style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary btn-sm btn-preset-breq" data-amount="2000">۲٬۰۰۰ سکه</button>
+            <button type="button" class="btn btn-secondary btn-sm btn-preset-breq active" data-amount="5000">۵٬۰۰۰ سکه</button>
+            <button type="button" class="btn btn-secondary btn-sm btn-preset-breq" data-amount="10000">۱۰٬۰۰۰ سکه</button>
+            <button type="button" class="btn btn-secondary btn-sm btn-preset-breq" data-amount="20000">۲۰٬۰۰۰ سکه</button>
+          </div>
+        </div>
+
+        <div>
+          <label for="budget-req-amount-input" style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 4px;">مبلغ مورد نیاز (سکه):</label>
+          <input type="number" id="budget-req-amount-input" min="1000" step="1000" value="5000" style="width: 100%; padding: 8px 12px; font-size: 0.95rem; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #f8fafc;">
+        </div>
+
+        <div>
+          <label for="budget-req-note-input" style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 4px;">علت / یادداشت درخواست (اختیاری):</label>
+          <input type="text" id="budget-req-note-input" placeholder="مثال: خرید سوخت برای تهاجم مرزی یا خرید توکن‌های ابزار" maxlength="80" style="width: 100%; padding: 8px 12px; font-size: 0.85rem; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #f8fafc;">
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px;">
+        <button type="button" class="btn btn-secondary" onclick="closeBudgetRequestModal()">انصراف</button>
+        <button type="button" id="btn-send-budget-request" class="btn btn-warning" style="font-weight: bold;">📤 ارسال درخواست به رئیس‌جمهور</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Budget Transfer to Treasury Modal (For Minister of War & Economy) -->
+  <div id="budget-transfer-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 470px; width: 92%; background: #0f172a; border: 2px solid #10b981; border-radius: 14px; padding: 22px; box-shadow: 0 20px 45px rgba(0,0,0,0.85);">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 10px;">
+        <h3 style="margin: 0; color: #86efac; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+          <span>🏛️</span>
+          <span id="budget-transfer-modal-title">انتقال بودجه به خزانه ملی کشور</span>
+        </h3>
+        <button class="modal-close-btn" onclick="closeBudgetTransferModal()">✕</button>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; margin-top: 14px;">
+        <p style="font-size: 0.85rem; color: #94a3b8; margin: 0; line-height: 1.5;">
+          انتقال مستقیم سکه از بودجه وزارتخانه شما به خزانه ملی کشور جهت پشتیبانی از صندوق ملی و توسعه فناوری‌های کلان.
+        </p>
+
+        <div style="display: flex; justify-content: space-between; background: #1e293b; padding: 10px 14px; border-radius: 8px; font-size: 0.85rem; border: 1px solid #334155;">
+          <span>موجودی بودجه وزارت: <strong id="transfer-modal-current-budget" style="color: #fbbf24;">۰</strong> سکه</span>
+          <span>خزانه کل ملی: <strong id="transfer-modal-treasury" style="color: #4ade80;">۰</strong> سکه</span>
+        </div>
+
+        <div>
+          <label style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 6px;">مبالغ پیشنهادی سریع:</label>
+          <div class="budget-transfer-presets" style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary btn-sm btn-preset-btransfer" data-amount="1000">۱٬۰۰۰ سکه</button>
+            <button type="button" class="btn btn-secondary btn-sm btn-preset-btransfer" data-amount="2000">۲٬۰۰۰ سکه</button>
+            <button type="button" class="btn btn-secondary btn-sm btn-preset-btransfer active" data-amount="5000">۵٬۰۰۰ سکه</button>
+            <button type="button" class="btn btn-secondary btn-sm btn-preset-btransfer" data-amount="all">کل موجودی 💰</button>
+          </div>
+        </div>
+
+        <div>
+          <label for="budget-transfer-amount-input" style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 4px;">مبلغ انتقال به خزانه (سکه):</label>
+          <input type="number" id="budget-transfer-amount-input" min="500" step="500" value="2000" style="width: 100%; padding: 8px 12px; font-size: 0.95rem; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #f8fafc;">
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px;">
+        <button type="button" class="btn btn-secondary" onclick="closeBudgetTransferModal()">انصراف</button>
+        <button type="button" id="btn-confirm-transfer-to-treasury" class="btn btn-success" style="font-weight: bold;">🏛️ واریز به خزانه ملی</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive Toast Notification for President on Budget Request -->
+  <div id="budget-request-toast" class="budget-request-toast hidden">
+    <div class="budget-toast-content">
+      <div class="budget-toast-header">
+        <span class="budget-toast-badge">🔔 درخواست بودجه فوری</span>
+        <button id="btn-dismiss-budget-toast" class="trade-toast-close" title="بستن">✕</button>
+      </div>
+      <div class="budget-toast-body">
+        <p id="budget-toast-text" style="margin: 4px 0 8px; font-size: 0.85rem; color: #f8fafc; line-height: 1.4;">
+          وزیر درخواست بودجه دارد.
+        </p>
+      </div>
+      <div id="budget-toast-actions" class="budget-toast-actions" style="display: flex; gap: 8px; justify-content: flex-end;">
+        <button id="btn-budget-toast-reject" class="btn btn-danger btn-sm" style="padding: 4px 10px; font-size: 0.8rem;">❌ رد</button>
+        <button id="btn-budget-toast-accept" class="btn btn-success btn-sm" style="padding: 4px 12px; font-size: 0.8rem; font-weight: bold;">✅ واریز فوری</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts with Cache Busting -->
+  <script src="/js/lobby.js?v=9.0"></script>
+  <script src="/js/econBoard.js?v=9.0"></script>
+  <script src="/js/hexMap.js?v=9.0"></script>
+  <script src="/js/presidentApp.js?v=9.0"></script>
+  <script src="/js/chatComms.js?v=9.0"></script>
+  <script src="/js/main.js?v=9.0"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  falak-game:
+    build: .
+    container_name: falak_online_game
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000

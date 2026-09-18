@@ -154,6 +154,67 @@ function setupPanZoomEvents() {
     const factor = e.deltaY < 0 ? 0.85 : 1.15;
     applyZoom(factor);
   }, { passive: false });
+
+  // Mobile Touch Pan & Pinch-to-Zoom Support
+  let touchStartDist = null;
+  let isTouchDragging = false;
+  let touchStartPos = { x: 0, y: 0 };
+
+  function getTouchDistance(t1, t2) {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  svg.addEventListener('touchstart', e => {
+    if (e.target.closest && e.target.closest('.map-toolbar')) return;
+    if (e.touches.length === 1) {
+      isTouchDragging = true;
+      mapView.isPanning = true;
+      mapView.startX = e.touches[0].clientX;
+      mapView.startY = e.touches[0].clientY;
+      touchStartPos = { x: mapView.startX, y: mapView.startY };
+    } else if (e.touches.length === 2) {
+      isTouchDragging = true;
+      mapView.isPanning = false;
+      touchStartDist = getTouchDistance(e.touches[0], e.touches[1]);
+    }
+  }, { passive: false });
+
+  svg.addEventListener('touchmove', e => {
+    if (!isTouchDragging) return;
+    e.preventDefault();
+
+    if (e.touches.length === 1 && mapView.isPanning) {
+      const dx = e.touches[0].clientX - mapView.startX;
+      const dy = e.touches[0].clientY - mapView.startY;
+      mapView.startX = e.touches[0].clientX;
+      mapView.startY = e.touches[0].clientY;
+
+      const scaleX = mapView.w / (svg.clientWidth || 360);
+      const scaleY = mapView.h / (svg.clientHeight || 300);
+
+      mapView.x -= dx * scaleX;
+      mapView.y -= dy * scaleY;
+      applyMapView();
+    } else if (e.touches.length === 2 && touchStartDist) {
+      const currentDist = getTouchDistance(e.touches[0], e.touches[1]);
+      const factor = touchStartDist / (currentDist || 1);
+      if (Math.abs(factor - 1) > 0.02) {
+        applyZoom(factor > 1 ? 1.05 : 0.95);
+        touchStartDist = currentDist;
+      }
+    }
+  }, { passive: false });
+
+  const endTouch = () => {
+    isTouchDragging = false;
+    mapView.isPanning = false;
+    touchStartDist = null;
+  };
+
+  svg.addEventListener('touchend', endTouch);
+  svg.addEventListener('touchcancel', endTouch);
 }
 
 function initHexMap() {

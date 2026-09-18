@@ -68,6 +68,18 @@ function initGameView(room) {
   initDashboardTabs();
   initChatComms();
   updateHeaderStats();
+
+  // On mobile screens, collapse the comms sidebar by default so the workspace is immediately visible
+  if (window.innerWidth <= 768) {
+    const commsPanel = document.querySelector('.comms-panel');
+    if (commsPanel && !commsPanel.classList.contains('collapsed')) {
+      commsPanel.classList.add('collapsed');
+      const toggleText = document.getElementById('comms-toggle-text');
+      if (toggleText) toggleText.textContent = 'باز کردن چت و ویس';
+      const dockTab = document.getElementById('btn-comms-dock-tab');
+      if (dockTab) dockTab.classList.add('visible');
+    }
+  }
 }
 
 let dashboardTabsInitialized = false;
